@@ -1,4 +1,8 @@
 # Low-Alt-Obstacle-Check
+  
+## General  
+
+requirements.txt lists required libraries for all scripts.  
 
 ## 1 - Importing OSN data  
 
