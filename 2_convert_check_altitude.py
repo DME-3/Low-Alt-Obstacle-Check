@@ -5,7 +5,7 @@ import json
 import pickle
 import sys
 from osgeo import gdal
-
+import rasterio
 import os
 from rasterio.crs import CRS 
 from pyproj import Proj, Transformer, transform
@@ -170,8 +170,9 @@ def process_data(*args):
   gdf['gnd_elev'] = np.nan
   if USEDEM:
     print('Getting ground elevation for all trajectory points')
+    dem_src = rasterio.open(dem_file)
     for index, row in tqdm(gdf.iterrows()):
-      gdf.at[index, 'gnd_elev'] = dem_func.get_elev(elev_array, (row['lat'], row['lon']), transformer, dem_file)
+      gdf.at[index, 'gnd_elev'] = dem_func.get_elev(elev_array, (row['lat'], row['lon']), transformer, dem_src)
 
   # Open obstacle database
   with open(path_to_obstacles_json) as obstacles_database:
@@ -183,8 +184,9 @@ def process_data(*args):
 
   obs_gdf['dem_gnd_elev'] = np.nan
   if USEDEM:
+    dem_src = rasterio.open(dem_file)
     for index, row in obs_gdf.iterrows():
-      obs_gdf.at[index, 'dem_gnd_elev'] = dem_func.get_elev(elev_array, (row['lat'], row['lon']), transformer, dem_file)
+      obs_gdf.at[index, 'dem_gnd_elev'] = dem_func.get_elev(elev_array, (row['lat'], row['lon']), transformer, dem_src)
 
   obs_gdf = obs_gdf.sort_values(by=['height_m']) # sort obstacles by incresing height, to avoid that the min_hgt profil is wrong if a shorter obstacle comes after a taller one, in case the aircraft is within two obstacles clearance areas
 
@@ -332,7 +334,7 @@ if __name__ == "__main__":
       sys.exit(1)
   
   # TODO: check that pickle file name contains proper date range
-  date_range = arg1[8:29]
+  date_range = arg1[-25:-4]
 
   # start the program
   print('Processing the data...')
