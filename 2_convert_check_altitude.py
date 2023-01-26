@@ -33,7 +33,6 @@ DIP_MARGIN_M = 20 # allowance for dip below minimum height (45m corresponds to G
 N_MIN = 5
 
 GEOID_HEIGHT_M = 47  # geoid height for Cologne
-NAC_MIN = 10 # 
 
 DEFAULT_GND_ELEV_M = 50 # default ground elevation used to calculate dip below minimum height above ground (away from obstacles)
 
