@@ -44,7 +44,9 @@ def fetch_data_from_OSN(gdf):
 
         timestamp = flight_pt.time
 
-        req = 'SELECT icao24, positionnac, maxtime FROM operational_status_data4 WHERE hour=%s AND maxtime>%s-10 AND maxtime<%s+10 AND icao24 LIKE %s' % (str(flight_pt.hour), str(timestamp), str(timestamp), '\'%'+flight_pt.icao24+'%\' LIMIT 1 ')
+        req =   ('SELECT icao24, positionnac, maxtime FROM operational_status_data4 WHERE '
+                'hour=%s AND maxtime>%s-10 AND maxtime<%s+10 AND icao24 LIKE %s') \
+                % (str(flight_pt.hour), str(timestamp), str(timestamp), '\'%'+flight_pt.icao24+'%\' LIMIT 1 ')
 
         if not(first): 
             nac_query += 'UNION '
