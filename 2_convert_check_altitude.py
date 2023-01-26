@@ -3,9 +3,9 @@ import numpy as np
 import json
 import pickle
 import sys
-from osgeo import gdal # When GDAL is installed with Conda
 import rasterio
 import os
+from osgeo import gdal # When GDAL is installed with Conda
 from pyproj import Transformer, transform
 from shapely.geometry import Point
 from tqdm import tqdm
