@@ -120,32 +120,29 @@ if __name__ == "__main__":
     nac_df = fetch_data_from_OSN(gdf)
     ac_bad_nac = nac_df[nac_df['positionnac'] < NAC_MIN].icao24.unique()
     print('Data retrieved. Out of %s flights, %s flights have a NACp below %s'%(str(len(nac_df)), str(len(ac_bad_nac)), str(NAC_MIN)))
-    print('Saving the dataframes...')
 
     #save the nac_df
     nac_json = df_path + '/nac_df.json'
     nac_df.to_json(nac_json)
     print('Saved %s'%(nac_json))
 
+    print('Removing the flights from the dataframes...')
     index_to_drop = clean_inf_df[clean_inf_df['icao24'].isin(ac_bad_nac)].index
     clean_inf_df.drop(index_to_drop, inplace = True)
-
     gnd_index_to_drop = clean_gnd_inf_df[clean_gnd_inf_df['icao24'].isin(ac_bad_nac)].index
     clean_gnd_inf_df.drop(gnd_index_to_drop, inplace = True)
-
     gdf_index_to_drop = gdf[gdf['icao24'].isin(ac_bad_nac)].index
     gdf.drop(gdf_index_to_drop, inplace = True)
 
+    print('Saving the pruned dataframes...')
     for gdf_file in gdf_files:
         gdf_json = gdf_file
         gdf.to_json(gdf_json)
         print('Saved %s'%(gdf_json))
-    
     for inf_file in inf_df_files:
         inf_json = inf_file
         clean_inf_df.to_json(inf_json)
         print('Saved %s'%(inf_json))
-
     for gnd_inf_file in gnd_inf_df_files:
         gnd_inf_json = gnd_inf_file
         clean_gnd_inf_df.to_json(gnd_inf_json)
