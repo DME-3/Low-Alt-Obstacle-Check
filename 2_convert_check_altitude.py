@@ -143,7 +143,7 @@ def process_data(*args):
               n_traj += 1
           map_time_traj[icao][time] = icao + "_" + str(int(n_traj))
 
-  gdf["icao24_traj"] = gdf.apply(lambda x: map_time_traj[x.icao24][x.time], axis=1) + '_' + gdf.time.apply(lambda x: pd.to_datetime(x, unit='s').strftime("%d%m%y"))
+  gdf['ref'] = gdf.apply(lambda x: map_time_traj[x.icao24][x.time], axis=1) + '_' + gdf.time.apply(lambda x: pd.to_datetime(x, unit='s').strftime("%d%m%y"))
 
   gdf.drop(['prev_time', 'spi', 'alert', 'vertrate'], axis=1, inplace=True)
   gdf['inf_flt'] = False
@@ -151,9 +151,9 @@ def process_data(*args):
 
   # Add a distance column and compute cumulative along-track distance for each flight
   gdf['dist'] = 0.0
-  for flight in gdf.icao24_traj.unique():
+  for flight in gdf.ref.unique():
     first = True
-    current = gdf[gdf['icao24_traj'].isin([flight])] # gets the trajectory of the current flight
+    current = gdf[gdf['ref'].isin([flight])] # gets the trajectory of the current flight
     for row in current.itertuples():
       if not(first):
         current_pt = (float(row.lat), float(row.lon))
@@ -225,8 +225,8 @@ def process_data(*args):
 
   print('Checking each flight for minimum height compliance')
 
-  for flight in tqdm(gdf.icao24_traj.unique()):  # loop on individual flights
-    current = gdf[gdf['icao24_traj'].isin([flight])] # gets the trajectory of the current flight
+  for flight in tqdm(gdf.ref.unique()):  # loop on individual flights
+    current = gdf[gdf['ref'].isin([flight])] # gets the trajectory of the current flight
     for row_obs in obs_df.itertuples():  # for each flight, loop on obstacles
       infraction = False
       cpa = ALERT_DISTANCE_M + 999
@@ -280,7 +280,7 @@ def process_data(*args):
       if infraction:
         i +=1
         
-        gdf['inf_flt'] = np.where(gdf.icao24_traj == row.icao24_traj, True, gdf.inf_flt)
+        gdf['inf_flt'] = np.where(gdf.ref == row.ref, True, gdf.inf_flt)
         
         url = "https://globe.adsbexchange.com/?icao=%s&lat=50.928&lon=6.947&zoom=13.2&showTrace=%s&timestamp=%s" % (row.icao24, str(pd.to_datetime(cpa_time, utc=True, unit='s'))[:-15], cpa_timestamp)
         
@@ -324,7 +324,7 @@ def process_data(*args):
     if infraction_gnd:
       gi +=1
       
-      gdf['gnd_inf_flt'] = np.where(gdf.icao24_traj == row.icao24_traj, True, gdf.inf_flt)
+      gdf['gnd_inf_flt'] = np.where(gdf.ref == row.ref, True, gdf.inf_flt)
       
       url = "https://globe.adsbexchange.com/?icao=%s&lat=50.928&lon=6.947&zoom=13.2&showTrace=%s&timestamp=%s" % (row.icao24, str(pd.to_datetime(gprox_time, utc=True, unit='s'))[:-15], gprox_timestamp)
       
