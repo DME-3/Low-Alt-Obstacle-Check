@@ -368,7 +368,7 @@ if __name__ == "__main__":
 
   print('Processing the data...')
   gdf, clean_inf_df, clean_gnd_inf_df = process_data(arg1)
-  print('Data processes, saving...')
+  print('Data processed, saving...')
 
   # Save the dataframes
 
