@@ -3,7 +3,7 @@ import numpy as np
 import json
 import pickle
 import sys
-from osgeo import gdal
+from osgeo import gdal # When GDAL is installed with Conda
 import rasterio
 import os
 from pyproj import Transformer, transform
@@ -12,6 +12,7 @@ from tqdm import tqdm
 from math import radians, cos, sin, asin, sqrt
 from collections import defaultdict
 from glob import glob
+#from geopy.distance import geodesic # Only necessary if geodesic is used
 
 import dem_func
 from polygons import rhein_polygon, cologne_polygon
@@ -82,7 +83,7 @@ def process_data(*args):
   if np.any(elev_array == nodataval):
       elev_array[elev_array == nodataval] = np.nan
 
-  transformer = Transformer.from_crs(4326, 3035, always_xy = True)
+  transformer = Transformer.from_crs(4326, 3035, always_xy = True) # Transformer from WGS-84 to ETRS89-LAEA
 
   columns = [
       "time",
