@@ -83,7 +83,7 @@ def process_data(*args):
   if np.any(elev_array == nodataval):
       elev_array[elev_array == nodataval] = np.nan
 
-  transformer = Transformer.from_crs(4326, 3035, always_xy = True) # Transformer from WGS-84 to ETRS89-LAEA
+  crs_transformer = Transformer.from_crs(4326, 3035, always_xy = True) # Transformer from WGS-84 to ETRS89-LAEA
 
   columns = [
       "time",
@@ -169,18 +169,19 @@ def process_data(*args):
     print('Getting ground elevation for all trajectory points')
     dem_src = rasterio.open(dem_file)
     for index, row in tqdm(gdf.iterrows()):
-      gdf.at[index, 'gnd_elev'] = dem_func.get_elev(elev_array, (row['lat'], row['lon']), transformer, dem_src)
+      gdf.at[index, 'gnd_elev'] = dem_func.get_elev(elev_array, (row['lat'], row['lon']), crs_transformer, dem_src)
 
   # Open obstacle database
   with open(path_to_obstacles_json) as obstacles_database:
       obstacles_data = json.load(obstacles_database)
   obs_df = pd.json_normalize(obstacles_data, record_path =['obstacles'])
 
+  # Get ground elevation for each obstacle
   obs_df['dem_gnd_elev'] = np.nan
   if USEDEM:
     dem_src = rasterio.open(dem_file)
     for index, row in obs_df.iterrows():
-      obs_df.at[index, 'dem_gnd_elev'] = dem_func.get_elev(elev_array, (row['lat'], row['lon']), transformer, dem_src)
+      obs_df.at[index, 'dem_gnd_elev'] = dem_func.get_elev(elev_array, (row['lat'], row['lon']), crs_transformer, dem_src)
 
   obs_df = obs_df.sort_values(by=['height_m']) # sort obstacles by incresing height, to avoid that the min_hgt profil is wrong if a shorter obstacle comes after a taller one, in case the aircraft is within two obstacles clearance areas
 
@@ -221,7 +222,9 @@ def process_data(*args):
 
   i = 0 # infraction counter
   gi = 0 # ground infraction counter
+
   print('Checking each flight for minimum height compliance')
+
   for flight in tqdm(gdf.icao24_traj.unique()):  # loop on individual flights
     current = gdf[gdf['icao24_traj'].isin([flight])] # gets the trajectory of the current flight
     for row_obs in obs_df.itertuples():  # for each flight, loop on obstacles
@@ -236,12 +239,12 @@ def process_data(*args):
       cpa_timestamp = ""
 
       obs_pt = (float(row_obs.lat), float(row_obs.lon))
-      obs_h = float(row_obs.height_m)
+      obs_h_m = float(row_obs.height_m)
 
       if USEDEM:
-        obs_elev = row_obs.dem_gnd_elev
+        obs_elev_m = row_obs.dem_gnd_elev # Use the ground elevation calculated from the DEM
       else:
-        obs_elev = float(row_obs.terrain_elevation_m)
+        obs_elev_m = float(row_obs.terrain_elevation_m) # Or, use the ground elevation from the obstacle JSON
 
       for row in current.itertuples():  # for each flight and a given obstacle, loop on trajectory points
         if row.onground=='false':
@@ -250,13 +253,13 @@ def process_data(*args):
           #dist = geodesic(obs_pt,ac_pt).m  # geodesic is accurate but slow
           dist = haversine(obs_pt,ac_pt)    # haversine function is less accurate but fast (typically more than twice as fast than haversine, error about 1 meter)
 
-          dip = GEOID_HEIGHT_M + obs_elev + obs_h + ALERT_DELTA_HEIGHT_M - float(row.geoaltitude)
+          dip = GEOID_HEIGHT_M + obs_elev_m + obs_h_m + ALERT_DELTA_HEIGHT_M - float(row.geoaltitude)
 
           in_rhein = rhein_polygon.contains(Point(float(row.lon), float(row.lat)))
 
           if dist < ALERT_DISTANCE_M:
 
-            gdf.loc[row[0], 'min_hgt'] = obs_elev + obs_h + ALERT_DELTA_HEIGHT_M
+            gdf.loc[row[0], 'min_hgt'] = obs_elev_m + obs_h_m + ALERT_DELTA_HEIGHT_M
 
             if dip > 0 and not(in_rhein):
 
@@ -276,8 +279,11 @@ def process_data(*args):
 
       if infraction:
         i +=1
+        
         gdf['inf_flt'] = np.where(gdf.icao24_traj == row.icao24_traj, True, gdf.inf_flt)
+        
         url = "https://globe.adsbexchange.com/?icao=%s&lat=50.928&lon=6.947&zoom=13.2&showTrace=%s&timestamp=%s" % (row.icao24, str(pd.to_datetime(cpa_time, utc=True, unit='s'))[:-15], cpa_timestamp)
+        
         inf_df.loc[i] = [
           str(pd.to_datetime(cpa_time, utc=True, unit='s'))[:-6], 
           row.icao24, 
@@ -300,9 +306,12 @@ def process_data(*args):
     for row in current.itertuples():  # for each flight, loop on trajectory point to perform the ground check
       if row.onground=='false':
           ac_pt = (float(row.lat),float(row.lon))
+          
           dip_gnd = GEOID_HEIGHT_M + DEFAULT_GND_ELEV_M + ALERT_DELTA_HEIGHT_M - float(row.geoaltitude)
+          
           in_rhein = rhein_polygon.contains(Point(float(row.lon), float(row.lat)))
           in_cologne = cologne_polygon.contains(Point(float(row.lon), float(row.lat)))
+          
           if dip_gnd > 0 and not(in_rhein) and in_cologne:
             infraction_gnd = True
             g += 1
@@ -314,8 +323,11 @@ def process_data(*args):
     
     if infraction_gnd:
       gi +=1
+      
       gdf['gnd_inf_flt'] = np.where(gdf.icao24_traj == row.icao24_traj, True, gdf.inf_flt)
+      
       url = "https://globe.adsbexchange.com/?icao=%s&lat=50.928&lon=6.947&zoom=13.2&showTrace=%s&timestamp=%s" % (row.icao24, str(pd.to_datetime(gprox_time, utc=True, unit='s'))[:-15], gprox_timestamp)
+      
       gnd_inf_df.loc[gi] = [
         str(pd.to_datetime(gprox_time, utc=True, unit='s'))[:-6], 
         row.icao24, 
@@ -349,6 +361,7 @@ if __name__ == "__main__":
       sys.exit(1)
   
   # TODO: check that pickle file name contains proper date range
+  # Format example: './OSN_pickles/svdata4_2022-12-22_2023-01-22.pkl'
   date_range = arg1[-25:-4]
 
   # start the program
