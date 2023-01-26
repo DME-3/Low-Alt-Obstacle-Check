@@ -1,13 +1,15 @@
 # Filter out aircraft known to have NACp < 10 and for which no nac_df is available in the historical data (based on past processing)
+# Also, remove special callsigns fron 2021 data (before they were added to exclusions)
 
-from glob import glob
 import pandas as pd
 import sys
 import os
 
-# list for 2021-2022
+# list for 2021-2022 plus missed special callsigns
 list = ['DEEFQ', 'DEGZZ', 'DEISK', 'DEMCG', 'DEPTS', 'DEWIM', 'DEZEI',
-       'DKIOG', 'DMCDS', 'DMEID', 'DMYMZ', 'DMZDY']
+       'DKIOG', 'DMCDS', 'DMEID', 'DMYMZ', 'DMZDY',
+       'GFD93', 'RESQ41', 'HELI417', 'HELI005',
+       'GER626F', 'GAM011', 'HELI676', 'R72107', 'LOKI18']
 
 if __name__ == "__main__":
     try:
