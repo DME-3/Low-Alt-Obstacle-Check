@@ -2,3 +2,5 @@ OSN_pickles/
 dataframes/
 OSN_secrets.json
 __pycache__/
+batch_2.sh
+batch_3.sh
