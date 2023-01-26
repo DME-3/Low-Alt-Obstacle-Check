@@ -323,7 +323,7 @@ def process_data(*args):
     if infraction_gnd:
       gi +=1
       
-      gdf['gnd_inf_flt'] = np.where(gdf.ref == row.ref, True, gdf.inf_flt)
+      gdf['gnd_inf_flt'] = np.where(gdf.ref == row.ref, True, gdf.gnd_inf_flt) # bugfix : was using gdf.inf_flt as default instead of gdf.gnd_inf_flt
       
       url = "https://globe.adsbexchange.com/?icao=%s&lat=50.928&lon=6.947&zoom=13.2&showTrace=%s&timestamp=%s" % (row.icao24, str(pd.to_datetime(gprox_time, utc=True, unit='s'))[:-15], gprox_timestamp)
       
