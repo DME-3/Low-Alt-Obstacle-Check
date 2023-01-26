@@ -94,10 +94,6 @@ if __name__ == "__main__":
 
     df_path = arg1
 
-    if os.path.isfile(df_path + '/nac_df.json'):
-        print('Error: nac_df.json already present in %s. Check if the dataframes have not been processed yet.'%(df_path))
-        sys.exit(1)
-
     print('Loading dataframes...')
 
     # Load clean_inf_df
@@ -115,7 +111,13 @@ if __name__ == "__main__":
     gdf = pd.concat([pd.read_json(file, lines=False) for file in gdf_files])
     gdf = gdf.reset_index(drop=True)
 
-    nac_df = fetch_data_from_OSN(gdf)
+    if os.path.isfile(df_path + '/nac_df.json'):
+        print('nac_df.json already present in %s, loading it.'%(df_path))
+        nac_df = pd.read_json(df_path + '/nac_df.json', lines=False)
+        nac_df = nac_df.reset_index(drop=True)
+    else:
+        nac_df = fetch_data_from_OSN(gdf)
+    
     ac_bad_nac = nac_df[nac_df['positionnac'] < NAC_MIN].icao24.unique()
     print('Data retrieved. Out of %s flights, %s flights have a NACp below %s'%(str(len(nac_df)), str(len(ac_bad_nac)), str(NAC_MIN)))
 
