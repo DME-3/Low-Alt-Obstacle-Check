@@ -1,13 +1,16 @@
-import datetime
+from datetime import datetime
 import paramiko
 import json
 import pickle
+import sys
 
 OSN_secrets_json = './OSN_secrets.json'
 
 LAT_MIN, LAT_MAX = 50.896393, 50.967115
 LON_MIN, LON_MAX = 6.919968, 7.005756
 ALT_MIN, ALT_MAX = 0, 700
+
+TIMEOUT = 30 # timeout for the connection to OSN Impala shell (in seconds)
 
 # Callsign exceptions for government, military and ambulance flights
 chx = "%CHX%"
@@ -30,12 +33,13 @@ def get_dates():
         end_date = datetime.strptime(end_date_str, '%d/%m/%y')
 
         # Modify start_date to be 00:00:00
-        start_date = start_date.replace(hour=0, minute=0, second=0, microsecond=0)
+        start_date = start_date.replace(hour=0, minute=0, second=1, microsecond=0)
         # Modify end_date to be 23:59:59
         end_date = end_date.replace(hour=23, minute=59, second=59, microsecond=999999)
 
     except ValueError:
-        raise ValueError("Incorrect date format, should be DD/MM/YY")
+        print('Incorrect date format, should be DD/MM/YY')
+        sys.exit(1)
     
     return start_date, end_date
 
@@ -84,12 +88,20 @@ def get_OSN_svdata4(start, end):
 
     request = setup_request(start, end)
 
+    opt=[]
+
     p = paramiko.SSHClient()
     p.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     print('Connecting to OSN database...')
-    p.connect("data.opensky-network.org", port=2230, username=OSN_usr, password=OSN_pwd)
+    p.connect("data.opensky-network.org", port=2230, username=OSN_usr, password=OSN_pwd, timeout=TIMEOUT)
     stdin, stdout, stderr = p.exec_command(request)
-    opt = stdout.readlines()
+
+    while True:
+        line = stdout.readline()
+        if not line:
+            break
+        #print(line, end="")
+        opt.append(line)
 
     return opt
 
@@ -100,6 +112,8 @@ if __name__ == "__main__":
 
     date_range = '%s_%s'% (str(start.date()), str(end.date()))
     output_filename_pickle = 'OSN_pickles/svdata4_%s.pkl'%(date_range)
+
+    input("Press enter to continue and request OSN data for date range %s"%(date_range))
 
     osn_data = get_OSN_svdata4(start, end)
 
