@@ -193,7 +193,7 @@ def process_data(*args):
   inf_df = pd.DataFrame(columns=
     [
       'timestamp_cpa', 
-      'ICAO', 
+      'icao24', 
       'callsign', 
       'obstacle_name', 
       'cpa', 
@@ -208,7 +208,7 @@ def process_data(*args):
   gnd_inf_df = pd.DataFrame(columns=
     [
       'timestamp_gprox', 
-      'ICAO', 
+      'icao24', 
       'callsign', 
       'obstacle_name', 
       'dip_max', 
@@ -277,7 +277,18 @@ def process_data(*args):
         i +=1
         gdf['inf_flt'] = np.where(gdf.icao24_traj == row.icao24_traj, True, gdf.inf_flt)
         url = "https://globe.adsbexchange.com/?icao=%s&lat=50.928&lon=6.947&zoom=13.2&showTrace=%s&timestamp=%s" % (row.icao24, str(pd.to_datetime(cpa_time, utc=True, unit='s'))[:-15], cpa_timestamp)
-        inf_df.loc[i] = [str(pd.to_datetime(cpa_time, utc=True, unit='s'))[:-6], row.icao24, row.callsign, inf_obs, round(cpa), round(dip_max), n, flight, url, row.hour]
+        inf_df.loc[i] = [
+          str(pd.to_datetime(cpa_time, utc=True, unit='s'))[:-6], 
+          row.icao24, 
+          row.callsign, 
+          inf_obs, 
+          round(cpa), 
+          round(dip_max), 
+          n, 
+          flight, 
+          url, 
+          row.hour
+        ]
 
     g = 0
     infraction_gnd = False
@@ -304,7 +315,17 @@ def process_data(*args):
       gi +=1
       gdf['gnd_inf_flt'] = np.where(gdf.icao24_traj == row.icao24_traj, True, gdf.inf_flt)
       url = "https://globe.adsbexchange.com/?icao=%s&lat=50.928&lon=6.947&zoom=13.2&showTrace=%s&timestamp=%s" % (row.icao24, str(pd.to_datetime(gprox_time, utc=True, unit='s'))[:-15], gprox_timestamp)
-      gnd_inf_df.loc[gi] = [str(pd.to_datetime(gprox_time, utc=True, unit='s'))[:-6], row.icao24, row.callsign, "Below 300m AGL", round(dip_max_gnd), g, flight, url, row.hour]
+      gnd_inf_df.loc[gi] = [
+        str(pd.to_datetime(gprox_time, utc=True, unit='s'))[:-6], 
+        row.icao24, 
+        row.callsign, 
+        "Below 300m AGL", 
+        round(dip_max_gnd), 
+        g, 
+        flight, 
+        url, 
+        row.hour
+      ]
 
   inf_df = inf_df.sort_values(by='timestamp_cpa') # Sorts the dataframe chronologically
   inf_df = inf_df.reset_index(drop = True) # reindex the dataframe (remove the old index)
@@ -330,18 +351,26 @@ if __name__ == "__main__":
   date_range = arg1[-25:-4]
 
   # start the program
+
   print('Processing the data...')
   gdf, clean_inf_df, clean_gnd_inf_df = process_data(arg1)
   print('Data processes, saving...')
 
   # Save the dataframes
-  gdf_json = dataframes_path + 'gdf_%s.json'%(date_range)
+
+  df_path = dataframes_path + date_range
+  if not os.path.exists(df_path):
+      os.makedirs(df_path)
+
+  gdf_json = df_path + '/gdf_%s.json'%(date_range)
   gdf.to_json(gdf_json)
   print('Saved %s'%(gdf_json))
-  clean_inf_df_json = dataframes_path + 'clean_inf_df_%s.json'%(date_range)
+
+  clean_inf_df_json = df_path + '/clean_inf_df_%s.json'%(date_range)
   clean_inf_df.to_json(clean_inf_df_json)
   print('Saved %s'%(clean_inf_df_json))
-  clean_gnd_inf_df_json = dataframes_path + 'clean_gnd_inf_df_%s.json'%(date_range)
+
+  clean_gnd_inf_df_json = df_path + '/clean_gnd_inf_df_%s.json'%(date_range)
   clean_gnd_inf_df.to_json(clean_gnd_inf_df_json)
   print('Saved %s'%(clean_gnd_inf_df_json))
 
