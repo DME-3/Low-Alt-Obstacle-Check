@@ -13,17 +13,17 @@ ALT_MIN, ALT_MAX = 0, 700
 TIMEOUT = 30 # timeout for the connection to OSN Impala shell (in seconds)
 
 # Callsign exceptions for government, military and ambulance flights
-chx = "%CHX%"
-hummel = "%HUMMEL%"
-bpo = "%BPO%"
-sar = "%SAR"
-joker = "%JOKER%"
-fck = "%FCK%"
-ibis = "%IBIS%"
-heli = "%HELI%"
-airesc = "%AIRESC%"
-gam = "%GAM%"
-resq = "%RESQ%"
+chx =       "%CHX%"
+hummel =    "%HUMMEL%"
+bpo =       "%BPO%"
+sar =       "%SAR"
+joker =     "%JOKER%"
+fck =       "%FCK%"
+ibis =      "%IBIS%"
+heli =      "%HELI%"
+airesc =    "%AIRESC%"
+gam =       "%GAM%"
+resq =      "%RESQ%"
 
 def get_dates():
     try:
