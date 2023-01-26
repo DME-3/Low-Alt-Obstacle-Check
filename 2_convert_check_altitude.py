@@ -1,21 +1,17 @@
 import pandas as pd
 import numpy as np
-import geopandas as gpd
 import json
 import pickle
 import sys
 from osgeo import gdal
 import rasterio
 import os
-from rasterio.crs import CRS 
-from pyproj import Proj, Transformer, transform
+from pyproj import Transformer, transform
 from shapely.geometry import Point
 from tqdm import tqdm
-from geopy.distance import geodesic
 from math import radians, cos, sin, asin, sqrt
 from collections import defaultdict
 from glob import glob
-from scipy import ndimage
 
 import dem_func
 from polygons import rhein_polygon, cologne_polygon
@@ -179,16 +175,13 @@ def process_data(*args):
       obstacles_data = json.load(obstacles_database)
   obs_df = pd.json_normalize(obstacles_data, record_path =['obstacles'])
 
-  # Create the obstacles geodataframe from the dataframe, using the coordinates lat and lon
-  obs_gdf = gpd.GeoDataFrame(obs_df, geometry=gpd.points_from_xy(obs_df.lon, obs_df.lat))
-
-  obs_gdf['dem_gnd_elev'] = np.nan
+  obs_df['dem_gnd_elev'] = np.nan
   if USEDEM:
     dem_src = rasterio.open(dem_file)
-    for index, row in obs_gdf.iterrows():
-      obs_gdf.at[index, 'dem_gnd_elev'] = dem_func.get_elev(elev_array, (row['lat'], row['lon']), transformer, dem_src)
+    for index, row in obs_df.iterrows():
+      obs_df.at[index, 'dem_gnd_elev'] = dem_func.get_elev(elev_array, (row['lat'], row['lon']), transformer, dem_src)
 
-  obs_gdf = obs_gdf.sort_values(by=['height_m']) # sort obstacles by incresing height, to avoid that the min_hgt profil is wrong if a shorter obstacle comes after a taller one, in case the aircraft is within two obstacles clearance areas
+  obs_df = obs_df.sort_values(by=['height_m']) # sort obstacles by incresing height, to avoid that the min_hgt profil is wrong if a shorter obstacle comes after a taller one, in case the aircraft is within two obstacles clearance areas
 
   gdf['inf_flt'] = False
   gdf['inf_pt'] = False
@@ -230,7 +223,7 @@ def process_data(*args):
   print('Checking each flight for minimum height compliance')
   for flight in tqdm(gdf.icao24_traj.unique()):  # loop on individual flights
     current = gdf[gdf['icao24_traj'].isin([flight])] # gets the trajectory of the current flight
-    for row_obs in obs_gdf.itertuples():  # for each flight, loop on obstacles
+    for row_obs in obs_df.itertuples():  # for each flight, loop on obstacles
       infraction = False
       cpa = ALERT_DISTANCE_M + 999
       dip_max = 0
