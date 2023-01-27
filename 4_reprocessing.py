@@ -20,6 +20,10 @@ if __name__ == "__main__":
 
     df_file = arg1
 
+    if 'nac_df.json' in df_file:
+        print('Skipping %s and exiting.'%(df_file))
+        sys.exit(0)
+
     df = pd.read_json(df_file, lines=False)
     df = df.reset_index(drop=True)
 
