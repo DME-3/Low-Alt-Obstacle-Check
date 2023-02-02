@@ -42,7 +42,13 @@ Run the script passing the input pickle as only argument.
 
 The script converts the pickle input in a global dataframe (gdf), adds the distance, time, ground elevation information, then calculate possible events with respect to obstacles and minimum ground heights.  
 
+Obstacle events occur when an aircraft is within a 600 m (2000 ft) radius of an obstacle, at a height lower than the obstacle height plus 300 m (1000 ft). The aircraft must be over Cologne, and not over the Rhein river (not considered as congested area).  
+
+Ground events occur when an aircraft flies at a height lower than 300 m (1000 ft) over ground.  
+
 Event flags are added to the gdf dataframe, and two additional dataframes containing only events are created. They are then clean to apply lateral and vertical tolerances, and saved (by default in dataframes/ directory).  
+
+![](https://github.com/DME-3/Low-Alt-Obstacle-Check/raw/main/LowAltCologne_Definitions.png)
 
 ## 3 - Getting NACp parameters and removing data points where NACp is insufficient  
 
