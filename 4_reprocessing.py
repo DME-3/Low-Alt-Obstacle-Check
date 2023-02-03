@@ -8,7 +8,7 @@ import os
 # list for 2021-2022 plus missed special callsigns
 list = ['DEEFQ', 'DEGZZ', 'DEISK', 'DEMCG', 'DEPTS', 'DEWIM', 'DEZEI',
        'DKIOG', 'DMCDS', 'DMEID', 'DMYMZ', 'DMZDY',
-       'GFD93', 'RESQ41', 'HELI417', 'HELI005',
+       'GFD93', 'RESQ41', 'HELI417', 'HELI005', 'HELI955',
        'GER626F', 'GAM011', 'HELI676', 'R72107', 'LOKI18']
 
 if __name__ == "__main__":
