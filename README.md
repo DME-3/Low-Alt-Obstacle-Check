@@ -82,7 +82,7 @@ Known limitations:
 
 - Some flights are split and appear as distinct flights in the data (distinct 'ref' identifiers), although the time difference does not exceed the detection threshold.
 - Minimum ground altitude check is made with a default elevation value (50 m) instead of using gnd_elev parameter.
-- Not all authorised aircraft (e.g. HELI955) may have been properly filtered for older data (2021).
+- Not all authorised aircraft (e.g. HELI955) or aircraft sending bad data (e.g. DEBWF) may have been properly filtered for older data (2021).
 - inf_pt and gnd_inf_pt flags in gdf will be set to True irrespective of margins. This may flag a flight in the site's map, which does not appear in the event list.
 - Infractions for bridges over the Rhein river are not calculated. 
 - Obstacles are considered punctual, their horizontal extent is not taken into account.
