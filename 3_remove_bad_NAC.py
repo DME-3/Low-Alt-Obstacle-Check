@@ -17,13 +17,11 @@ OSN_pwd = OSN_creds['OSN_password']
 OSN_usr = OSN_creds['OSN_user']
 
 def get_line_lst(line_txt):
-    lst = line_txt.split("|")
-    filter_lst = [elt.strip() for elt in lst]
-    while filter_lst[0] == "":
-        filter_lst = filter_lst[1:]
-    while filter_lst[-1] == "":
-        filter_lst = filter_lst[:-1]
-    return filter_lst
+    '''
+    Return a list of non-empty strings that were delimited by the "|" character in the input string.
+    Leading and trailing whitespace are removed
+    '''
+    return [elt.strip() for elt in line_txt.split("|") if elt.strip()]
 
 def fetch_data_from_OSN(gdf):
 
@@ -58,7 +56,7 @@ def fetch_data_from_OSN(gdf):
     p.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     p.connect("data.opensky-network.org", port=2230, username=OSN_usr, password=OSN_pwd)
     stdin, stdout, stderr = p.exec_command(nac_query)
-    opt = stdout.readlines()
+    osn_data = stdout.readlines()
 
     columns = [
         "icao24",
@@ -66,18 +64,9 @@ def fetch_data_from_OSN(gdf):
         "maxtime",
     ]
 
-    lst_of_lst = []
+    # Load OSN data in a dataframe
+    nac_df = pd.DataFrame([get_line_lst(osn_data[i]) for i in range(3, len(osn_data) - 1) if not osn_data[i].startswith("+-")], columns=columns)
 
-    for i in range(3, len(opt) - 1):
-        if opt[i][:2] != "+-":
-            l = get_line_lst(opt[i])
-            if len(l) != len(columns):
-                print("Error in parsing line: ")
-                print(l)
-                print(len(l))
-            lst_of_lst.append(l)
-
-    nac_df = pd.DataFrame(lst_of_lst, columns=columns)
     nac_df.dropna(inplace=True)
 
     nac_df['positionnac'] = nac_df['positionnac'].apply(lambda x: int(x))
