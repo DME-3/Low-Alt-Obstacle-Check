@@ -37,13 +37,11 @@ GEOID_HEIGHT_M = 47  # geoid height for Cologne
 DEFAULT_GND_ELEV_M = 50 # default ground elevation used to calculate dip below minimum height above ground (away from obstacles)
 
 def get_line_lst(line_txt):
-    lst = line_txt.split("|")
-    filter_lst = [elt.strip() for elt in lst]
-    while filter_lst[0] == "":
-        filter_lst = filter_lst[1:]
-    while filter_lst[-1] == "":
-        filter_lst = filter_lst[:-1]
-    return filter_lst
+    '''
+    Return a list of non-empty strings that were delimited by the "|" character in the input string.
+    Leading and trailing whitespace are removed
+    '''
+    return [elt.strip() for elt in line_txt.split("|") if elt.strip()]
 
 def haversine(pt1, pt2):
     """
