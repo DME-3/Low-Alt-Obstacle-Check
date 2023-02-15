@@ -67,9 +67,9 @@ def haversine(pt1, pt2):
 
 def process_data(*args):
 
-  opt = []
+  osn_data = []
   with open(args[0], 'rb') as f:
-    opt += pickle.load(f)
+    osn_data += pickle.load(f)
 
   gdal_data = gdal.Open(dem_file)
   gdal_band = gdal_data.GetRasterBand(1)
@@ -102,21 +102,8 @@ def process_data(*args):
       "hour",
   ]
 
-  # Format OSN data, load it in list, dataframe, and convert to geodataframe
-  # Based on code from https://github.com/thomasdubdub/opensky-traffic-viz
-
-  lst_of_lst = []
-
-  for i in range(3, len(opt) - 1):
-      if opt[i][:2] != "+-":
-          l = get_line_lst(opt[i])
-          if len(l) != len(columns):
-              print("Error in parsing line: ")
-              print(l)
-              print(len(l))
-          lst_of_lst.append(l)
-
-  df = pd.DataFrame(lst_of_lst, columns=columns)
+  # Load OSN data in a dataframe
+  df = pd.DataFrame([get_line_lst(osn_data[i]) for i in range(3, len(osn_data) - 1) if not osn_data[i].startswith("+-")], columns=columns)
 
   df.dropna(inplace=True)
 
