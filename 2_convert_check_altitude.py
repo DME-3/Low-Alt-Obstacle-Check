@@ -5,6 +5,7 @@ import pickle
 import sys
 import rasterio
 import os
+import utm
 from osgeo import gdal # When GDAL is installed with Conda
 from pyproj import Transformer, transform
 from shapely.geometry import Point
@@ -35,6 +36,72 @@ N_MIN = 5
 GEOID_HEIGHT_M = 47  # geoid height for Cologne
 
 DEFAULT_GND_ELEV_M = 50 # default ground elevation used to calculate dip below minimum height above ground (away from obstacles)
+
+# Conversion WGS84 to UTM
+def latlon_to_utm(lat, lon):
+    # Convert lat/lon to UTM coordinates
+    utm_x, utm_y, _, _ = utm.from_latlon(lat, lon)
+    return utm_x, utm_y
+
+# Functions to look up min height from arrays
+def find_closest_index(x_array, x):
+    # Find the index of the closest value to x
+    closest_index = np.argmin(np.abs(x_array - x))
+    return closest_index
+
+def find_min_alt(lat, lon, x_array, y_array, z_array):
+
+  x, y = latlon_to_utm(lat, lon)
+
+  idx_x = find_closest_index(x_array, x)
+  idx_y = find_closest_index(y_array, y)
+
+  min_alt = z_array[idx_y][idx_x]
+
+  return min_alt
+
+# Load xyz pickles, build LiDAR min alt surface and return arrays
+def build_surface():
+
+    with open('./xyz_pickles/x_results.pkl','rb') as f:
+        x_results = pickle.load(f)
+
+    with open('./xyz_pickles/y_results.pkl','rb') as f:
+        y_results = pickle.load(f)
+
+    with open('./xyz_pickles/z_results.pkl','rb') as f:
+        z_results = pickle.load(f)
+
+    x_array = np.array([])
+
+    for i in range(len(x_results)):
+        x_array = np.concatenate((x_array, x_results[i][0]))
+
+    y_array = np.array([])
+
+    for j in range(len(y_results)):
+        y_array = np.concatenate((y_array, y_results[0][j]))
+
+    lst = z_results
+
+    row=len(lst)
+    col=len(lst[0])
+
+    for j in range(0, row):
+        for i in range(0, col):
+            if i==0:
+                z_array_row = z_results[i][j]
+            else:
+                z_array_row = np.hstack((z_array_row, z_results[i][j]))
+    
+        if j==0:
+            z_array = z_array_row
+        else:
+            z_array = np.vstack((z_array, z_array_row))
+
+    z_array = z_array + ALERT_DELTA_HEIGHT_M
+
+    return x_array, y_array, z_array
 
 def get_line_lst(line_txt):
     '''
@@ -75,6 +142,9 @@ def process_data(*args):
   gdal_band = gdal_data.GetRasterBand(1)
   nodataval = gdal_band.GetNoDataValue()
   elev_array = gdal_data.ReadAsArray().astype(float) # convert to a numpy array
+
+  # Open pickles and build surface arrays
+  x_array, y_array, z_array = build_surface()
 
   # replace missing values if necessary
   if np.any(elev_array == nodataval):
@@ -174,6 +244,14 @@ def process_data(*args):
   gdf['gnd_inf_flt'] = False
   gdf['gnd_inf_pt'] = False
   gdf['min_hgt'] = gdf['gnd_elev'] + 300 # Minimum height away from obstacles is 300 m above ground (over congested areas)
+  
+  # Add the LiDAR minimum altitude information
+  gdf['lidar_min_alt'] = 0
+  for row in tqdm(gdf.itertuples()):
+      # Find min alt
+      lidar_min_alt = find_min_alt(float(row.lat), float(row.lon), x_array, y_array, z_array)
+      # Add min alt parameter to row
+      gdf.loc[row[0], 'lidar_min_alt'] = lidar_min_alt
 
   # prepare the infraction dataframe to store infraction (1 line per infraction)
   inf_df = pd.DataFrame(columns=
@@ -373,5 +451,3 @@ if __name__ == "__main__":
   print('Saved %s'%(clean_gnd_inf_df_json))
 
   print('Done, exiting.')
-
-
