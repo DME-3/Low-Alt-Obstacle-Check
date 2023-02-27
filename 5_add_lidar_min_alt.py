@@ -5,6 +5,7 @@ import utm
 import pickle
 import numpy as np
 import pandas as pd
+from tqdm import tqdm
 
 ALERT_DELTA_HEIGHT_M = 300   # delta height (should be 300)
 
@@ -98,6 +99,13 @@ if __name__ == "__main__":
 
     # Open the gdf file
     gdf_file = arg1
+
+    if 'gdf_' not in gdf_file:
+        print('Skipping %s (not  gdf file) and exiting.'%(gdf_file))
+        sys.exit(0)
+    else:
+        print('Opening %s...'%(gdf_file))
+
     gdf = pd.read_json(gdf_file, lines=False)
     gdf = gdf.reset_index(drop=True)
 
@@ -108,7 +116,7 @@ if __name__ == "__main__":
     gdf['lidar_min_alt'] = 0
 
     # Iterate over gdf rows
-    for row in gdf.itertuples():
+    for row in tqdm(gdf.itertuples()):
 
         # Find min alt
         lidar_min_alt = find_min_alt(float(row.lat), float(row.lon), x_array, y_array, z_array)
