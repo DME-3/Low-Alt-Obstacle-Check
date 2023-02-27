@@ -50,5 +50,6 @@ six==1.16.0
 snuggs==1.4.7
 tqdm==4.64.1
 urllib3==1.26.14
+utm==0.7.0
 wheel==0.37.1
 xyzservices==2022.9.0
