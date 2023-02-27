@@ -78,6 +78,14 @@ Run the script passing a dataframe .json file as the only argument.
 
 The script contains a list of callsigns and dates corresponding to the EU Rotors symposium taking place in Cologne. These aircraft have special authorisation to land in the city. They are removed from the dataframe, which is then saved.  
 
+## 5 - Add LiDAR min alt (optional)
+
+This script is used only to process older dataframes which did not have the LiDAR min alt in the first place. Current step 2 script adds this by default, in this case step 5 would not be needed.
+
+Run the script passing a dataframe .json file as the only argument.
+
+The script uses the xyz pickles to reconstitute the x, y, z arrays corresponding to the minimum altitude surface obtained from LiDAR aerial survey data. For more information, see this [GitHub repo](https://github.com/DME-3/LiDAR-Min-Alt-Surface)
+
 ## Limitations
 
 Known limitations:
