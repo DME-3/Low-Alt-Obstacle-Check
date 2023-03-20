@@ -8,7 +8,7 @@ OSN_secrets_json = './OSN_secrets.json'
 
 LAT_MIN, LAT_MAX = 50.896393, 50.967115
 LON_MIN, LON_MAX = 6.919968, 7.005756
-ALT_MIN, ALT_MAX = 0, 700
+ALT_MIN, ALT_MAX = 0, 750 # update from 700 m to 750 m, in line with CTR limit at 2500 ft plus margin (and accounting for Geoid Height)
 
 TIMEOUT = 30 # timeout for the connection to OSN Impala shell (in seconds)
 
