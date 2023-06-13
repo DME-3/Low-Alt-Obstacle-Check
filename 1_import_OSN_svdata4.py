@@ -12,19 +12,6 @@ ALT_MIN, ALT_MAX = 0, 750 # update from 700 m to 750 m, in line with CTR limit a
 
 TIMEOUT = 30 # timeout for the connection to OSN Impala shell (in seconds)
 
-# Callsign exceptions for government, military and ambulance flights
-chx =       "%CHX%"
-hummel =    "%HUMMEL%"
-bpo =       "%BPO%"
-sar =       "%SAR"
-joker =     "%JOKER%"
-fck =       "%FCK%"
-ibis =      "%IBIS%"
-heli =      "%HELI%"
-airesc =    "%AIRESC%"
-gam =       "%GAM%"
-resq =      "%RESQ%"
-
 def get_dates():
     try:
         start_date_str = input("Enter start date in DD/MM/YY format: ")
@@ -56,17 +43,6 @@ def setup_request(start, end):
     request = (
         f"-q select * from state_vectors_data4"
         f" where callsign like '{callsign}'"
-        f" and callsign not like '{chx}'"
-        f" and callsign not like '{hummel}'"
-        f" and callsign not like '{bpo}'"
-        f" and callsign not like '{sar}'"
-        f" and callsign not like '{joker}'"
-        f" and callsign not like '{fck}'"
-        f" and callsign not like '{ibis}'"
-        f" and callsign not like '{heli}'"
-        f" and callsign not like '{airesc}'"
-        f" and callsign not like '{gam}'"
-        f" and callsign not like '{resq}'"
         f" and icao24 like '{icao24}'"
         f" and time>={start_time} and time<={end_time}"
         f" and hour>={start_hour} and hour<={end_hour}"
