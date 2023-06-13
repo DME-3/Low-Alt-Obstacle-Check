@@ -448,7 +448,7 @@ if __name__ == "__main__":
 
   # Save the dataframes
 
-  df_path = dataframes_path + date_range + 'test'
+  df_path = dataframes_path + date_range
   if not os.path.exists(df_path):
       os.makedirs(df_path)
 
