@@ -187,10 +187,10 @@ def process_data(*args):
   callsign_exceptions = ["CHX", "HUMMEL", "BPO", "SAR", "JOKER", "FCK", "IBIS", "HELI", "AIRESC", "GAM", "RESQ"]
   pattern = '|'.join(callsign_exceptions)
   mask = df['callsign'].str.contains(pattern)
-  df = df[~mask]
   excluded_rows = df[mask]
   unique_excluded_callsigns = excluded_rows['callsign'].nunique()
   print('%s occurences of callsign exceptions to drop from dataframe'%(str(unique_excluded_callsigns)))
+  df = df[~mask]
   #
   ##
 
