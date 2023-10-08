@@ -1,3 +1,4 @@
+from osgeo import gdal # When GDAL is installed with Conda
 import pandas as pd
 import numpy as np
 import json
@@ -6,7 +7,6 @@ import sys
 import rasterio
 import os
 import utm
-from osgeo import gdal # When GDAL is installed with Conda
 from pyproj import Transformer, transform
 from shapely.geometry import Point
 from tqdm import tqdm
@@ -134,9 +134,7 @@ def haversine(pt1, pt2):
 
 def process_data(*args):
 
-  osn_data = []
-  with open(args[0], 'rb') as f:
-    osn_data += pickle.load(f)
+  osn_data = pd.read_pickle(args[0])
 
   gdal_data = gdal.Open(dem_file)
   gdal_band = gdal_data.GetRasterBand(1)
@@ -173,7 +171,7 @@ def process_data(*args):
   ]
 
   # Load OSN data in a dataframe
-  df = pd.DataFrame([get_line_lst(osn_data[i]) for i in range(3, len(osn_data) - 1) if not osn_data[i].startswith("+-")], columns=columns)
+  df = osn_data[columns].copy()
 
   df.dropna(inplace=True)
 
@@ -323,7 +321,7 @@ def process_data(*args):
         obs_elev_m = float(row_obs.terrain_elevation_m) # Or, use the ground elevation from the obstacle JSON
 
       for row in current.itertuples():  # for each flight and a given obstacle, loop on trajectory points
-        if row.onground=='false':
+        if not row.onground:
           ac_pt = (float(row.lat),float(row.lon))
           
           #dist = geodesic(obs_pt,ac_pt).m  # geodesic is accurate but slow
@@ -380,7 +378,7 @@ def process_data(*args):
     gprox_timestamp = ""
 
     for row in current.itertuples():  # for each flight, loop on trajectory point to perform the ground check
-      if row.onground=='false':
+      if not row.onground:
           ac_pt = (float(row.lat),float(row.lon))
           
           dip_gnd = GEOID_HEIGHT_M + DEFAULT_GND_ELEV_M + ALERT_DELTA_HEIGHT_M - float(row.geoaltitude)
@@ -435,6 +433,8 @@ if __name__ == "__main__":
   except IndexError:
       print('Usage: ' + os.path.basename(__file__) + ' <.pkl file to process>')
       sys.exit(1)
+
+  #arg1 = 'OSN_pickles/svdata4df_2023-09-01_2023-09-15.pkl'
   
   # TODO: check that pickle file name contains proper date range
   # Format example: './OSN_pickles/svdata4_2022-12-22_2023-01-22.pkl'

@@ -1,31 +1,15 @@
-import paramiko
-import json
 import pandas as pd
 import random
 import os
 import sys
 from glob import glob
-
-OSN_secrets_json = './OSN_secrets.json'
+from pyopensky.trino import Trino
 
 NAC_MIN = 10 # 
 
-with open(OSN_secrets_json) as OSN_secrets:
-    OSN_creds = json.load(OSN_secrets)
-
-OSN_pwd = OSN_creds['OSN_password']
-OSN_usr = OSN_creds['OSN_user']
-
-def get_line_lst(line_txt):
-    '''
-    Return a list of non-empty strings that were delimited by the "|" character in the input string.
-    Leading and trailing whitespace are removed
-    '''
-    return [elt.strip() for elt in line_txt.split("|") if elt.strip()]
-
 def fetch_data_from_OSN(gdf):
 
-    nac_query = '-q '
+    nac_query = ''
 
     first = True
 
@@ -40,9 +24,9 @@ def fetch_data_from_OSN(gdf):
 
         timestamp = flight_pt.time
 
-        req =   ('SELECT icao24, positionnac, maxtime FROM operational_status_data4 WHERE '
+        req =   ('(SELECT icao24, positionnac, maxtime FROM operational_status_data4 WHERE '
                 'hour=%s AND maxtime>%s-10 AND maxtime<%s+10 AND icao24 LIKE %s') \
-                % (str(flight_pt.hour), str(timestamp), str(timestamp), '\'%'+flight_pt.icao24+'%\' LIMIT 1 ')
+                % (str(flight_pt.hour), str(timestamp), str(timestamp), '\'%'+flight_pt.icao24+'%\' LIMIT 1) ')
 
         if not(first): 
             nac_query += 'UNION '
@@ -52,11 +36,11 @@ def fetch_data_from_OSN(gdf):
         nac_query += req
 
     print('Connecting to OSN database...')
-    p = paramiko.SSHClient()
-    p.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    p.connect("data.opensky-network.org", port=2230, username=OSN_usr, password=OSN_pwd)
-    stdin, stdout, stderr = p.exec_command(nac_query)
-    osn_data = stdout.readlines()
+    trino = Trino()
+    df = trino.query(
+        nac_query,
+        cached=False,
+    )
 
     columns = [
         "icao24",
@@ -65,7 +49,7 @@ def fetch_data_from_OSN(gdf):
     ]
 
     # Load OSN data in a dataframe
-    nac_df = pd.DataFrame([get_line_lst(osn_data[i]) for i in range(3, len(osn_data) - 1) if not osn_data[i].startswith("+-")], columns=columns)
+    nac_df = df[columns]
 
     nac_df.dropna(inplace=True)
 

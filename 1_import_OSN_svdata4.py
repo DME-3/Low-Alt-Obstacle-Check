@@ -1,10 +1,6 @@
 from datetime import datetime
-import paramiko
-import json
-import pickle
+from pyopensky.trino import Trino
 import sys
-
-OSN_secrets_json = './OSN_secrets.json'
 
 LAT_MIN, LAT_MAX = 50.896393, 50.967115
 LON_MIN, LON_MAX = 6.919968, 7.005756
@@ -30,7 +26,7 @@ def get_dates():
     
     return start_date, end_date
 
-def setup_request(start, end):
+def setup_query(start, end):
 
     start_time = int(start.timestamp())
     start_hour = start_time - (start_time % 3600)
@@ -40,8 +36,8 @@ def setup_request(start, end):
     callsign = "%"
     icao24 = "%"
 
-    request = (
-        f"-q select * from state_vectors_data4"
+    query = (
+        f"select * from state_vectors_data4"
         f" where callsign like '{callsign}'"
         f" and icao24 like '{icao24}'"
         f" and time>={start_time} and time<={end_time}"
@@ -51,35 +47,22 @@ def setup_request(start, end):
         f" and geoaltitude>={ALT_MIN} and geoaltitude<={ALT_MAX}"
     )
 
-    return request
+    return query
 
 # Connect to OSN and fetch data
 def get_OSN_svdata4(start, end):
 
-    with open(OSN_secrets_json) as OSN_secrets:
-        OSN_creds = json.load(OSN_secrets)
+    query = setup_query(start, end)
 
-    OSN_pwd = OSN_creds['OSN_password']
-    OSN_usr = OSN_creds['OSN_user']
+    trino = Trino()
 
-    request = setup_request(start, end)
+    df = trino.query(
+        query,
+        cached=False,
+        compress=True,
+    )
 
-    opt=[]
-
-    p = paramiko.SSHClient()
-    p.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    print('Connecting to OSN database...')
-    p.connect("data.opensky-network.org", port=2230, username=OSN_usr, password=OSN_pwd, timeout=TIMEOUT)
-    stdin, stdout, stderr = p.exec_command(request)
-
-    while True:
-        line = stdout.readline()
-        if not line:
-            break
-        #print(line, end="")
-        opt.append(line)
-
-    return opt
+    return df
 
 if __name__ == "__main__":
 
@@ -87,16 +70,24 @@ if __name__ == "__main__":
     start, end = get_dates()
 
     date_range = '%s_%s'% (str(start.date()), str(end.date()))
-    output_filename_pickle = 'OSN_pickles/svdata4_%s.pkl'%(date_range)
+    output_filename_pickle = 'OSN_pickles/svdata4df_%s.pkl'%(date_range)
 
     input("Press enter to continue and request OSN data for date range %s"%(date_range))
 
     osn_data = get_OSN_svdata4(start, end)
+    print('OSN data retrieved.')
 
-    print('OSN data retrieved. Saving file...')
+    osn_data = osn_data.drop('serials', axis = 1) # drop the serials columns, as it contains lists it is non-hashable and therefore the .duplicated() would not work
+
+    duplicates = osn_data.duplicated()
+    num_duplicates = duplicates.sum()
+    print(f'Number of duplicate rows to remove: {num_duplicates}')
+
+    osn_data_dedup = osn_data.drop_duplicates()
+    osn_data_dedup.reset_index(drop=True, inplace=True)
+
     # Saving query result to pickle file
-    with open(output_filename_pickle, 'wb') as f:
-        pickle.dump(osn_data, f)
-    
-    f.close()
+    print('Saving file...')
+    osn_data_dedup.to_pickle(output_filename_pickle)
+
     print('Finished')
