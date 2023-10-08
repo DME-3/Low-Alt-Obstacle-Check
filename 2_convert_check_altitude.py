@@ -1,3 +1,4 @@
+from osgeo import gdal # When GDAL is installed with Conda
 import pandas as pd
 import numpy as np
 import json
@@ -6,7 +7,6 @@ import sys
 import rasterio
 import os
 import utm
-from osgeo import gdal # When GDAL is installed with Conda
 from pyproj import Transformer, transform
 from shapely.geometry import Point
 from tqdm import tqdm
