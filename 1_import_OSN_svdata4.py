@@ -37,15 +37,19 @@ def setup_query(start, end):
     icao24 = "%"
 
     query = (
-        f"select * from state_vectors_data4"
-        f" where callsign like '{callsign}'"
-        f" and icao24 like '{icao24}'"
-        f" and time>={start_time} and time<={end_time}"
-        f" and hour>={start_hour} and hour<={end_hour}"
-        f" and lat>={LAT_MIN} and lat<={LAT_MAX}"
-        f" and lon>={LON_MIN} and lon<={LON_MAX}"
-        f" and geoaltitude>={ALT_MIN} and geoaltitude<={ALT_MAX}"
+        f"EXECUTE IMMEDIATE 'SELECT * FROM state_vectors_data4"
+        f" WHERE callsign LIKE ''{callsign}''"
+        f" AND icao24 LIKE ''{icao24}''"
+        f" AND time >= ? AND time <= ?"
+        f" AND hour >= ? AND hour <= ?"
+        f" AND lat >= ? AND lat <= ?"
+        f" AND lon>= ? AND lon <= ?"
+        f" AND geoaltitude >= ? AND geoaltitude <= ?'"
+        f" USING {start_time}, {end_time}, {start_hour}, {end_hour}, {LAT_MIN}, {LAT_MAX},"
+        f" {LON_MIN}, {LON_MAX}, {ALT_MIN}, {ALT_MAX}"
     )
+
+# needed: state_vectors_data4.time, state_vectors_data4.icao24, state_vectors_data4.lat, state_vectors_data4.lon, state_vectors_data4.callsign, state_vectors_data4.onground, state_vectors_data4.baroaltitude, state_vectors_data4.geoaltitude, state_vectors_data4.lastposupdate, state_vectors_data4.lastcontact, state_vectors_data4.hour
 
     return query
 
