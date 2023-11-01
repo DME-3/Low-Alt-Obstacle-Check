@@ -182,7 +182,7 @@ def process_data(*args):
 
   ## Remove callsign for government, military and ambulance flights
   #
-  callsign_exceptions = ["CHX", "HUMMEL", "BPO", "SAR", "JOKER", "FCK", "IBIS", "HELI", "AIRESC", "GAM", "RESQ", "ROTOR"]
+  callsign_exceptions = ["CHX", "HUMMEL", "BPO", "SAR", "JOKER", "FCK", "IBIS", "HELI", "AIRESC", "GAM", "RESQ", "ROTOR", "GNY"]
   pattern = '|'.join(callsign_exceptions)
   mask = df['callsign'].str.contains(pattern)
   excluded_rows = df[mask]
