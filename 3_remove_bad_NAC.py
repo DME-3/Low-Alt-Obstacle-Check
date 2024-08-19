@@ -13,11 +13,11 @@ def fetch_data_from_OSN(gdf):
 
     first = True
 
-    all_flights = gdf.ref.unique()
+    all_ac = gdf.icao24.unique()
 
-    for flight in all_flights:
+    for ac in all_ac:
 
-        flight_data = gdf[gdf['ref'] == flight]
+        flight_data = gdf[gdf['icao24'] == ac]
 
         k = random.randint(0,len(flight_data)-1) # randomly choose a point for the current flight. It will be used to determine NACp for the flight. This is in order to simplify the Impala query
         flight_pt = flight_data.iloc[k]
