@@ -10,3 +10,4 @@ update_data.sh
 reprocessing/
 data_baseline/
 test.json
+mysql_secrets.json
