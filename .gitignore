@@ -11,3 +11,4 @@ reprocessing/
 data_baseline/
 test.json
 mysql_secrets.json
+trino_secrets.json
