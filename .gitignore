@@ -17,3 +17,4 @@ trino_secrets.json
 .ssh/known_hosts
 PYA_secrets.json
 OSN_to_PythonAnywhere.ipynb
+tools/Load_legacy_data_to_mySQL.ipynb
