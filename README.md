@@ -2,98 +2,64 @@
   
 ## General  
 
-These Python scripts are used to generate the data for the [Low Alt Cologne](https://www.lowaltcologne.org) website.  
+This Python script is used to generate the data for the [Low Alt Cologne](https://www.lowaltcologne.org) website.  
 
-The process comprises 5 steps (2 being optional) described below.  
+The process comprises the steps described below.  
 
-As an alternative to step 1, sources of data other than OSN may be used, as long as the data format is preserved. This also requires adapting step 2 data loading.  
+Sources of data other than OSN may be used, as long as the data format is preserved. 
 
-Shell scripts may be used to run the scripts iteratively if many files are processed.  
+The script includes uploading the results to a MySQL server.
 
 requirements.txt lists required packages for all scripts (clean-up needed since more than the packages strictly necessary is included).  
 
 ## 1 - Importing OSN data  
 
 Requisite:  
-- OSN_secrets.json file with following format:
-
-```
-{
-    "OSN_user": "username",
-    "OSN_password": "password"
-}
-```  
+- Functionnal Trino connection
   
 User has to enter the appropriate start and end dates for querying the OSN database.  
 
-The script elaborates an Impala request, taking into account callsign exclusions for authorised low-altitude operations, such as HEMS, governmental, police, military, etc.  
+The script connects to the Trino server, and queries data from 3 tables for the date corresponding to 2 days in the past. All results are merged in a single dataframe.
 
-The output is a pickle file which is saved in the local 'OSN_pickles' directory.  
+Results are saved as pickles.
 
-## 2 - Converting data and checking altitude  
+## 2 - Adding DEM Ground Elevation
 
-Requisites:
-- DEM file in resources/ directory
-- Obstacles JSON file in resources/ directory
-- polygons.py for city and Rhein polygons
-- den_func.py for functions getting elevation from DEM
+We now use a DEM obtained from processed LiDAR Airborne Surveys (LAS), available openly.
 
-Run the script passing the input pickle as only argument.  
+The ground elevation at each point is simply read from the DEM GeoTIFF.
 
-The script converts the pickle input in a global dataframe (gdf), adds the distance, time, ground elevation information, then calculates possible events with respect to obstacles and minimum ground heights.  
+## 3 - Adding population density
 
-Obstacle events occur when an aircraft is within a 600 m (2000 ft) radius of an obstacle, at a height lower than the obstacle height plus 300 m (1000 ft). The aircraft must be over Cologne, and not over the Rhein river (not considered as congested area).  
+Population density is read and added from a Copernicus GeoTIFF. It will be used to approximate whether the aircraft position is in a congested area or not.
 
-Ground events occur when an aircraft flies at a height lower than 300 m (1000 ft) over ground.  
+## 4 - Trajectory processing
 
-Event flags are calculated and added to the gdf dataframe, and two additional dataframes containing only events are created. They are then cleaned to apply lateral and vertical tolerances, and saved (by default in dataframes/ directory).  
+Aircraft data is split into flights, and cumulative along-track distance information added (first point corresponds to distance = 0).
+
+## 5 - Load obstacle information and check min height
+
+Obstacle data is loaded. Obstacles are determined from processing of LAS data, which is more accurate than the AIP provided data. This way, we can also consider all obstacles from 60 m of height.
+
+For each trajectory point, the highest obstacle within an alerting perimeter defined in the rules of the air is determined. We then determine the minimum height allowable at that point, depending on whether the area is congested or not.
+
+Finally, for all points, we determine a "dip", i.e. the difference between the minimum height and the actual aircraft height.
 
 This diagram illustrates the various heights and and position parameters used:  
 
 ![diagram](https://github.com/DME-3/Low-Alt-Obstacle-Check/raw/main/LowAltCologne_Definitions.png)
 
-## 3 - Getting NACp parameters and removing data points where NACp is insufficient  
+## 6 - Process events
 
-Requisites:  
-- OSN_secrets.json file, or
-- nac_df file in the dataframes directories if already retrieved  
+We find all "events" (possible infractions), for both obstacles and ground clearance. Separate dataframes are created for easier processing.
 
-Run the script passing a directory containing dataframes as the only argument.
+## 7 - Upload data
 
-If a nac_df.json file is already present, the data will be used. If not, the script will connect to the OSN database and retrieve a sample of the NACp parameter for each flight in the dataframes (this will be done only for one position point).  
-
-The dataframes are then processed to remove any aircraft data where the NACp is insufficient (by default NACp < 10, i.e. 10 m horizontal accuracy), then saved.  
-
-## 4 - Reprocessing (optional)
-
-Run the script passing a dataframe .json file as the only argument.
-
-The script contains a list of callsigns known to transmit data with insufficient accuracy, or authorised to fly at low altitude.  
-
-These aircraft are removed from the dataframe, which is then saved.  
-
-## 4bis - EU Rotors (optional)
-
-Run the script passing a dataframe .json file as the only argument.
-
-The script contains a list of callsigns and dates corresponding to the EU Rotors symposium taking place in Cologne. These aircraft have special authorisation to land in the city. They are removed from the dataframe, which is then saved.  
-
-## 5 - Add LiDAR min alt (optional)
-
-This script is used only to process older dataframes which did not have the LiDAR min alt in the first place. Current step 2 script adds this by default, in this case step 5 would not be needed.
-
-Run the script passing a dataframe .json file as the only argument.
-
-The script uses the xyz pickles to reconstitute the x, y, z arrays corresponding to the minimum altitude surface obtained from LiDAR aerial survey data. For more information, see this [GitHub repo](https://github.com/DME-3/LiDAR-Min-Alt-Surface)
+Results are added to a MySQL database, for use by the web application.
 
 ## Limitations
 
 Known limitations:
 
 - Some flights are split and appear as distinct flights in the data (distinct 'ref' identifiers), although the time difference does not exceed the detection threshold.
-- Minimum ground altitude check is made with a default elevation value (50 m) instead of using gnd_elev parameter.
-- Not all authorised aircraft (e.g. HELI955) or aircraft sending bad data (e.g. DEBWF) may have been properly filtered for older data (2021).
-- inf_pt and gnd_inf_pt flags in gdf will be set to True irrespective of margins. This may flag a flight in the site's map, which does not appear in the event list.
-- Infractions for bridges over the Rhein river are not calculated. 
 - Obstacles are considered punctual, their horizontal extent is not taken into account.
-- Timestamp format changes at step 3 from string to datetime even if NACp list is empty.
