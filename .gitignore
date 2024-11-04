@@ -9,3 +9,4 @@ trino_secrets.json
 .ssh/known_hosts
 PYA_secrets.json
 tools/
+contours/
