@@ -320,7 +320,6 @@ obs_df = obs_df.sort_values(
 )  # sort obstacles by incresing height, to avoid that the min_hgt profil is wrong if a shorter obstacle comes after a taller one, in case the aircraft is within two obstacles clearance areas
 
 # new. Test if this should not be done before adding the ref and distance info
-final_df_bkp = final_df.copy()
 final_df = final_df.reset_index(drop=True)
 
 def update_closest_obstacle_xy(final_df, obstacles_df):
@@ -367,6 +366,7 @@ def update_closest_obstacle_xy(final_df, obstacles_df):
 
             final_df.at[i, "closest_obst_name"] = tallest_obstacle_name
 
+            # Important: Calculate the minimum height, considerint the tallest obstacle in the alert radius
             final_df.at[i, "min_hgt"] = (
                 GEOID_HEIGHT_M
                 + np.float32(tallest_obstacle_elev)
@@ -647,6 +647,9 @@ if max_date < two_days_ago:
         )
 
         print("Insertion in database done")
+else:
+    print('Date already in database, exiting...')
+    exit()
 
 ### Reload Web app
 
