@@ -1,3 +1,4 @@
+.venv/
 OSN_pickles/
 tools/
 OSN_secrets.json
