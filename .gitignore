@@ -10,3 +10,6 @@ trino_secrets.json
 PYA_secrets.json
 tools/
 contours/
+data_baseline/
+dataframes/
+reprocessing/
