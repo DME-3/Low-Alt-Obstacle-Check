@@ -40,25 +40,32 @@ GEOID_HEIGHT_M = 47  # geoid height for Cologne
 sshtunnel.SSH_TIMEOUT = 15.0
 sshtunnel.TUNNEL_TIMEOUT = 15.0
 
-OSN_secrets_json = "./trino_secrets.json"
 MYSQL_secrets_json = "./mysql_secrets.json"
-
-with open(OSN_secrets_json) as OSN_secrets:
-    OSN_creds = json.load(OSN_secrets)
+PYA_secrets_json = "./PYA_secrets.json"
 
 with open(MYSQL_secrets_json) as MYSQL_secrets:
     MYSQL_creds = json.load(MYSQL_secrets)
 
+with open(PYA_secrets_json) as PYA_secrets:
+    PYA_creds = json.load(PYA_secrets)
+
+username = PYA_creds["PYA_username"]
+token = PYA_creds["PYA_token"]
+host = PYA_creds["PYA_host"]
+domain_name = PYA_creds["PYA_domain"]
+
+
+# Obtain and format the date to retrieve data for (2 days ago)
 two_days_ago = datetime.now() - timedelta(days=2)
 date_string = two_days_ago.strftime("%Y-%m-%d")
 start = two_days_ago.replace(hour=0, minute=0, second=0, microsecond=0)
 end = two_days_ago.replace(hour=23, minute=59, second=59, microsecond=999999)
-
 start_time = int(start.timestamp())
 start_hour = start_time - (start_time % 3600)
 end_time = int(end.timestamp())
 end_hour = end_time - (end_time % 3600)
 
+# First query for State Vectors
 svdata4_query = (
     f"SELECT * FROM state_vectors_data4"
     f" WHERE icao24 LIKE '%'"
@@ -70,8 +77,8 @@ svdata4_query = (
     f" ORDER BY time"
 )
 
+print("Connecting to OSN database...")
 trino = Trino()
-
 svdata4_df = trino.query(
     svdata4_query,
     cached=False,
@@ -79,10 +86,9 @@ svdata4_df = trino.query(
 )
 
 # Save svdata4 pickle
-
 svdata4_df.to_pickle(f"./OSN_pickles/svdata4df_new_{date_string}.pkl")
 
-
+# Second Query for Ops Status
 icao_list = svdata4_df.icao24.unique()
 icao24_str = ", ".join(f"'{item}'" for item in icao_list)
 
@@ -135,6 +141,7 @@ for icao24 in unique_icao24s:
     # Append the result to the main dataframe
     merged_df = pd.concat([merged_df, merged_sub_df], ignore_index=True)
 
+# Third Query for Position data (to get the NIC)
 posdata4_query = (
     f"SELECT mintime, icao24, nic  FROM position_data4"
     f" WHERE icao24 IN ({icao24_str})"
@@ -182,16 +189,14 @@ for icao24 in unique_icao24s:
 
 final_df = final_df.drop(columns=["hour", "mintime_x", "maxtime", "mintime_y"])
 
-# # Add DEM ground elevation information
+## Add DEM ground elevation information
 
 crs_transformer = Transformer.from_crs(
     4326, 25832, always_xy=True
 )  # Transformer from WGS-84 to ETRS89-LAEA (3035 for EU-DEM v1.1, 25832 for LAS DEM)
 
-
 def transform_coords(lon, lat):
     return crs_transformer.transform(lon, lat)
-
 
 final_df["gnd_elev"] = np.nan
 
@@ -201,14 +206,12 @@ final_df["etrs89_x"], final_df["etrs89_y"] = zip(
     *final_df.apply(lambda row: transform_coords(row["lon"], row["lat"]), axis=1)
 )
 
-
 def get_elevation(x, y, dem, default_value=None):
     try:
         row, col = dem.index(x, y)
         return dem.read(1)[row, col]
     except IndexError:
         return default_value
-
 
 final_df["gnd_elev"] = final_df.apply(
     lambda row: get_elevation(
@@ -221,7 +224,7 @@ missing_elev_count = final_df["gnd_elev"].isnull().sum()
 print(f"Number of rows with None or NaN in 'gnd_elev': {missing_elev_count}")
 final_df = final_df.dropna(subset=["gnd_elev"])
 
-# # Add population density
+## Add population density
 
 final_df["pop_density"] = np.nan
 
@@ -229,18 +232,15 @@ pop_src = rasterio.open(
     "./resources/GHS_POP_E2020_GLOBE_R2023A_4326_3ss_V1_0_Cologne.tif"
 )
 
-
 def get_population(lon, lat, pop_src):
     row, col = pop_src.index(lon, lat)
     return pop_src.read(1)[row, col]
-
 
 final_df["pop_density"] = final_df.apply(
     lambda row: get_population(row["lon"], row["lat"], pop_src), axis=1
 )
 
-# # Process df with distance information
-
+## Process df with distance information
 
 def haversine(pt1, pt2):
     """
@@ -263,7 +263,6 @@ def haversine(pt1, pt2):
     c = 2 * asin(sqrt(a))
     r = 6371000  # Radius of earth in m
     return c * r
-
 
 final_df["prev_time"] = final_df.time.shift()
 final_df["closest_obst_name"] = ""
@@ -308,7 +307,7 @@ for flight in final_df.ref.unique():
         previous_pt = current_pt
         previous_dist = final_df.loc[row[0], "dist"]
 
-# # Load obstacle information and check min height
+## Load obstacle information and check min height
 
 path_to_obstacles_json = "./resources/LAC_obstacles_v1.csv"
 
@@ -323,7 +322,6 @@ obs_df = obs_df.sort_values(
 # new. Test if this should not be done before adding the ref and distance info
 final_df_bkp = final_df.copy()
 final_df = final_df.reset_index(drop=True)
-
 
 def update_closest_obstacle_xy(final_df, obstacles_df):
     # Extract the coordinates and obstacle heights
@@ -389,7 +387,6 @@ def update_closest_obstacle_xy(final_df, obstacles_df):
 
     return final_df
 
-
 final_df = update_closest_obstacle_xy(final_df, obs_df)
 
 final_df["dip"] = final_df["min_hgt"] - final_df["geoaltitude"]
@@ -426,7 +423,7 @@ missing_callsign = final_df["callsign"].isnull().sum()
 print(f"Number of rows with None or NaN in 'callsign': {missing_callsign}")
 final_df = final_df.dropna(subset=["callsign"])
 
-# # Create infraction tables
+## Create infraction tables
 
 inf_result = pd.DataFrame
 gnd_inf_result = pd.DataFrame()
@@ -576,7 +573,7 @@ gnd_inf_result = gnd_inf_result.reset_index(drop=True)
 
 gnd_inf_result = gnd_inf_result.drop(columns=["entry_count", "group"])
 
-# # Upload data to MySQL server
+### Upload data to the MySQL server
 
 ed25519_key = paramiko.Ed25519Key(filename="./.ssh/id_ed25519")
 
@@ -652,16 +649,6 @@ if max_date < two_days_ago:
         print("Insertion in database done")
 
 ### Reload Web app
-
-PYA_secrets_json = "./PYA_secrets.json"
-
-with open(PYA_secrets_json) as PYA_secrets:
-    PYA_creds = json.load(PYA_secrets)
-
-username = PYA_creds["PYA_username"]
-token = PYA_creds["PYA_token"]
-host = PYA_creds["PYA_host"]
-domain_name = PYA_creds["PYA_domain"]
 
 response = requests.post(
     "https://{host}/api/v0/user/{username}/webapps/{domain_name}/reload/".format(
