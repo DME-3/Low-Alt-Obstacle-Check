@@ -54,6 +54,7 @@ token = PYA_creds["PYA_token"]
 host = PYA_creds["PYA_host"]
 domain_name = PYA_creds["PYA_domain"]
 
+ed25519_key = paramiko.Ed25519Key(filename="./.ssh/id_ed25519")
 
 # Obtain and format the date to retrieve data for (2 days ago)
 two_days_ago = datetime.now() - timedelta(days=2)
@@ -574,8 +575,6 @@ gnd_inf_result = gnd_inf_result.reset_index(drop=True)
 gnd_inf_result = gnd_inf_result.drop(columns=["entry_count", "group"])
 
 ### Upload data to the MySQL server
-
-ed25519_key = paramiko.Ed25519Key(filename="./.ssh/id_ed25519")
 
 with SSHTunnelForwarder(
     (MYSQL_creds["SSH_ADDRESS"], 22),
