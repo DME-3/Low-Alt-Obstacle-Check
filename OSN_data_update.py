@@ -560,15 +560,18 @@ gnd_inf_result["inf_ref"] = (
     + gnd_inf_result["entry_count"].astype(str)
 )
 
-gnd_inf_result["url"] = gnd_inf_result.apply(
-    lambda row: "https://globe.adsbexchange.com/?icao=%s&lat=50.928&lon=6.947&zoom=13.2&showTrace=%s&timestamp=%s"
-    % (
-        row["icao24"],
-        row["time"].strftime("%Y-%m-%d"),
-        str(int(row["time"].timestamp())),
-    ),
-    axis=1,
-)
+if not gnd_inf_result.empty:
+    gnd_inf_result["url"] = gnd_inf_result.apply(
+        lambda row: "https://globe.adsbexchange.com/?icao=%s&lat=50.928&lon=6.947&zoom=13.2&showTrace=%s&timestamp=%s"
+        % (
+            row["icao24"],
+            row["time"].strftime("%Y-%m-%d"),
+            str(int(row["time"].timestamp())),
+        ),
+        axis=1,
+    )
+else:
+     gnd_inf_result["url"] = []
 
 gnd_inf_result = gnd_inf_result.reset_index(drop=True)
 
