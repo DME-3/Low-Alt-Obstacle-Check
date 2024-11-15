@@ -433,18 +433,19 @@ inf_pt_df = final_df[final_df.inf_pt].copy()
 
 inf_pt_df["dist_to_obs"] = np.nan
 
-inf_pt_df["dist_to_obs"] = inf_pt_df.apply(
-    lambda x: haversine(
-        (
-            obs_df.loc[obs_df["LAC_Name"] == x["closest_obst_name"], "lat"].iloc[0],
-            obs_df.loc[obs_df["LAC_Name"] == x["closest_obst_name"], "lon"].iloc[0],
-        ),
-        (x["lat"], x["lon"]),
+if not inf_pt_df.empty:
+    inf_pt_df["dist_to_obs"] = inf_pt_df.apply(
+        lambda x: haversine(
+            (
+                obs_df.loc[obs_df["LAC_Name"] == x["closest_obst_name"], "lat"].iloc[0],
+                obs_df.loc[obs_df["LAC_Name"] == x["closest_obst_name"], "lon"].iloc[0],
+            ),
+            (x["lat"], x["lon"]),
+        )
+        if not (x["closest_obst_name"] == "ground")
+        else np.nan,
+        axis=1,
     )
-    if not (x["closest_obst_name"] == "ground")
-    else np.nan,
-    axis=1,
-)
 
 inf_pt_df["time"] = pd.to_datetime(inf_pt_df["time"], unit="s")
 inf_pt_df = inf_pt_df.sort_values(by=["ref", "closest_obst_name", "time"])
@@ -491,15 +492,18 @@ inf_result["inf_ref"] = (
     inf_result["ref"].astype(str) + "_" + inf_result["entry_count"].astype(str)
 )
 
-inf_result["url"] = inf_result.apply(
-    lambda row: "https://globe.adsbexchange.com/?icao=%s&lat=50.928&lon=6.947&zoom=13.2&showTrace=%s&timestamp=%s"
-    % (
-        row["icao24"],
-        row["time"].strftime("%Y-%m-%d"),
-        str(int(row["time"].timestamp())),
-    ),
-    axis=1,
-)
+if not inf_result.empty:
+    inf_result["url"] = inf_result.apply(
+        lambda row: "https://globe.adsbexchange.com/?icao=%s&lat=50.928&lon=6.947&zoom=13.2&showTrace=%s&timestamp=%s"
+        % (
+            row["icao24"],
+            row["time"].strftime("%Y-%m-%d"),
+            str(int(row["time"].timestamp())),
+        ),
+        axis=1,
+    )
+else:
+    inf_result["url"] = []
 
 inf_result = inf_result.reset_index(drop=True)
 
