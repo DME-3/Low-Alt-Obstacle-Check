@@ -11,8 +11,10 @@ import requests
 import sshtunnel
 from pyopensky.trino import Trino
 from pyproj import Transformer
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, text, MetaData, insert
 from sshtunnel import SSHTunnelForwarder
+
+update_start_time = datetime.now()
 
 LAT_MIN, LAT_MAX = 50.88385859501204322, 50.98427935836787128
 LON_MIN, LON_MAX = 6.85029965503896943, 7.005  # 7.03641128126701965
@@ -55,6 +57,39 @@ host = PYA_creds["PYA_host"]
 domain_name = PYA_creds["PYA_domain"]
 
 ed25519_key = paramiko.Ed25519Key(filename="./.ssh/id_ed25519")
+
+def manifest_update(engine, table_name, processed_date, record_count, start_time, end_time, status, error_message=None):
+
+    try:
+
+        if isinstance(start_time, int):
+            start_time = datetime.fromtimestamp(start_time)
+        if isinstance(end_time, int):
+            end_time = datetime.fromtimestamp(end_time)
+
+        duration_sec = int((end_time - start_time).total_seconds())
+
+        metadata = MetaData()
+        metadata.reflect(bind=engine)
+        manifest_table = metadata.tables['manifest']
+
+        insert_stmt = insert(manifest_table).values(
+            table_name=table_name,
+            processed_date=processed_date,
+            record_count=record_count,
+            start_time=start_time,
+            end_time=end_time,
+            duration_sec=duration_sec,
+            status=status,
+            error_message=error_message
+        )
+
+        with engine.begin() as connection:
+            connection.execute(insert_stmt)
+            print(f"Manifest entry added for table: {table_name}")
+
+    except Exception as e:
+        print(f"Failed to log update to manifest table: {e}")
 
 # Obtain and format the date to retrieve data for (2 days ago)
 two_days_ago = datetime.now() - timedelta(days=2)
@@ -581,6 +616,13 @@ gnd_inf_result = gnd_inf_result.reset_index(drop=True)
 
 gnd_inf_result = gnd_inf_result.drop(columns=["entry_count", "group"])
 
+###
+
+gdf_record_count = len(final_df)
+inf_record_count = len(inf_result)
+gndinf_record_count = len(gnd_inf_result)
+processed_date = two_days_ago.date()
+
 ### Upload data to the MySQL server
 
 with SSHTunnelForwarder(
@@ -607,17 +649,17 @@ with SSHTunnelForwarder(
     engine = create_engine(engstr)
 
     query = text(
-        f"SELECT min(time) as min_date, max(time) as max_date FROM {MYSQL_creds['INF_PROD_TABLE_NAME']}"
+        "SELECT max(processed_date) as max_date FROM manifest"
     )
     result = pd.read_sql_query(query, con=engine)
-    min_date, max_date = result["min_date"].iloc[0], result["max_date"].iloc[0]
+    max_date = result["max_date"].iloc[0]
 
-if max_date < two_days_ago:
+if max_date < two_days_ago.date():
     # Set up the SSH tunnel with the RSA key
     with SSHTunnelForwarder(
         (MYSQL_creds["SSH_ADDRESS"], 22),
         ssh_username=MYSQL_creds["SSH_USERNAME"],
-        ssh_pkey=ed25519_key,  # Use the loaded RSA key
+        ssh_pkey=ed25519_key,
         remote_bind_address=(
             MYSQL_creds["REMOTE_BIND_ADDRESS"],
             MYSQL_creds["REMOTE_BIND_PORT"],
@@ -643,14 +685,19 @@ if max_date < two_days_ago:
         final_df.to_sql(
             con=engine, name=MYSQL_creds["MAIN_PROD_TABLE_NAME"], if_exists="append"
         )
+        manifest_update(engine, MYSQL_creds["MAIN_PROD_TABLE_NAME"], processed_date, gdf_record_count, update_start_time, datetime.now(), 'SUCCESS', None)
+
         print("step 2")
         inf_result.to_sql(
             con=engine, name=MYSQL_creds["INF_PROD_TABLE_NAME"], if_exists="append"
         )
+        manifest_update(engine, MYSQL_creds["INF_PROD_TABLE_NAME"], processed_date, inf_record_count, update_start_time, datetime.now(), 'SUCCESS', None)
+
         print("step 3")
         gnd_inf_result.to_sql(
             con=engine, name=MYSQL_creds["GNDINF_PROD_TABLE_NAME"], if_exists="append"
         )
+        manifest_update(engine, MYSQL_creds["GNDINF_PROD_TABLE_NAME"], processed_date, gndinf_record_count, update_start_time, datetime.now(), 'SUCCESS', None)
 
         print("Insertion in database done")
 else:
