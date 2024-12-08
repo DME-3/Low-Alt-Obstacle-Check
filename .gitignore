@@ -14,3 +14,4 @@ contours/
 data_baseline/
 dataframes/
 reprocessing/
+.DS_Store

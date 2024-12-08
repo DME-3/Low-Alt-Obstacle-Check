@@ -403,6 +403,7 @@ def update_closest_obstacle_xy(final_df, obstacles_df):
             final_df.at[i, "closest_obst_name"] = tallest_obstacle_name
 
             # Important: Calculate the minimum height, considerint the tallest obstacle in the alert radius
+            # min_hgt is referenced to the Geoid !
             final_df.at[i, "min_hgt"] = (
                 GEOID_HEIGHT_M
                 + np.float32(tallest_obstacle_elev)
@@ -416,6 +417,7 @@ def update_closest_obstacle_xy(final_df, obstacles_df):
         else:
             final_df.at[i, "closest_obst_name"] = "ground"
             final_df.at[i, "min_hgt"] = (
+                GEOID_HEIGHT_M +
                 CONGESTED_ALERT_DELTA_HEIGHT_M
                 if final_df.at[i, "congested"]
                 else NONCONGESTED_ALERT_DELTA_HEIGHT_M
