@@ -417,10 +417,13 @@ def update_closest_obstacle_xy(final_df, obstacles_df):
         else:
             final_df.at[i, "closest_obst_name"] = "ground"
             final_df.at[i, "min_hgt"] = (
-                GEOID_HEIGHT_M +
-                CONGESTED_ALERT_DELTA_HEIGHT_M
-                if final_df.at[i, "congested"]
-                else NONCONGESTED_ALERT_DELTA_HEIGHT_M
+                GEOID_HEIGHT_M
+                + final_df.at[i, "gnd_elev"]
+                + (
+                    CONGESTED_ALERT_DELTA_HEIGHT_M
+                    if final_df.at[i, "congested"]
+                    else NONCONGESTED_ALERT_DELTA_HEIGHT_M
+                )
             )
 
     return final_df
