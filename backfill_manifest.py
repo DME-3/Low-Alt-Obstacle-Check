@@ -95,8 +95,8 @@ with SSHTunnelForwarder(
     engine = create_engine(engstr)
 
     # Define the date range for backfilling
-    start_date = datetime.strptime('2021-01-02', '%Y-%m-%d')
-    end_date = datetime.strptime('2024-11-14', '%Y-%m-%d')
+    start_date = datetime.strptime('2025-12-22', '%Y-%m-%d')
+    end_date = datetime.strptime('2026-01-16', '%Y-%m-%d')
 
     # Call the backfill function
     backfill_manifest(engine, start_date, end_date)
