@@ -87,13 +87,19 @@ sshtunnel.TUNNEL_TIMEOUT = settings.tunnel_timeout_seconds
 MYSQL_secrets_json = "./mysql_secrets.json"
 PYA_secrets_json = "./PYA_secrets.json"
 
-with open(MYSQL_secrets_json) as MYSQL_secrets:
-    MYSQL_creds = json.load(MYSQL_secrets)
+MYSQL_creds = {}
+PYA_creds = {}
+ed25519_key = None
 
-with open(PYA_secrets_json) as PYA_secrets:
-    PYA_creds = json.load(PYA_secrets)
+if settings.publish:
+    with open(MYSQL_secrets_json) as MYSQL_secrets:
+        MYSQL_creds = json.load(MYSQL_secrets)
 
-ed25519_key = paramiko.Ed25519Key(filename="./.ssh/id_ed25519")
+    with open(PYA_secrets_json) as PYA_secrets:
+        PYA_creds = json.load(PYA_secrets)
+
+    ed25519_key = paramiko.Ed25519Key(filename="./.ssh/id_ed25519")
+
 publish_target = build_publish_target(MYSQL_creds, settings.target)
 logger.info(
     "pipeline_start mode=%s target=%s publish=%s",
