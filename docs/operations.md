@@ -120,6 +120,26 @@ Manifest backfill execution:
   --confirm-production
 ```
 
+
+## Artifact Retention
+
+Generated pickle and dataframe artifacts can be scanned without deleting anything:
+
+```bash
+/home/dimitri/obstaclecheck/.venv/bin/python scripts/cleanup_artifacts.py \
+  --older-than-days 120
+```
+
+Deletion requires explicit `--execute`:
+
+```bash
+/home/dimitri/obstaclecheck/.venv/bin/python scripts/cleanup_artifacts.py \
+  --older-than-days 120 \
+  --execute
+```
+
+Review the dry-run output before executing cleanup on the production server.
+
 ## Rollback
 
 To return to the previous production behavior, deploy the previous commit on `main` and restore the old cron entry. Before rollback, check whether any partial publish occurred and inspect manifest state for the affected date.
