@@ -84,7 +84,10 @@ ps -ef | grep OSN_data_update.py
 
 ## Manual Recovery Tools
 
-Backfill dry-run:
+`OSN_data_backfill.py` is now a manual recovery wrapper around the hardened nightly
+entry point. By default it only prints the per-date commands it would run.
+
+Backfill plan only, no OpenSky queries and no writes:
 
 ```bash
 /home/dimitri/obstaclecheck/.venv/bin/python OSN_data_backfill.py \
@@ -92,13 +95,36 @@ Backfill dry-run:
   --end-date 2026-05-29
 ```
 
-Backfill execution:
+Execute per-date dry-run child pipelines, still no DB writes:
+
+```bash
+/home/dimitri/obstaclecheck/.venv/bin/python OSN_data_backfill.py \
+  --start-date 2026-05-24 \
+  --end-date 2026-05-29 \
+  --execute
+```
+
+Execute test-table publishes and skip reload:
 
 ```bash
 /home/dimitri/obstaclecheck/.venv/bin/python OSN_data_backfill.py \
   --start-date 2026-05-24 \
   --end-date 2026-05-29 \
   --execute \
+  --publish \
+  --target test \
+  --skip-reload
+```
+
+Execute production publishes:
+
+```bash
+/home/dimitri/obstaclecheck/.venv/bin/python OSN_data_backfill.py \
+  --start-date 2026-05-24 \
+  --end-date 2026-05-29 \
+  --execute \
+  --publish \
+  --target prod \
   --confirm-production
 ```
 
@@ -119,7 +145,6 @@ Manifest backfill execution:
   --execute \
   --confirm-production
 ```
-
 
 ## Artifact Retention
 
