@@ -1,4 +1,7 @@
+import argparse
 import json
+import logging
+import sys
 from collections import defaultdict
 from datetime import datetime, timedelta
 from math import asin, cos, radians, sin, sqrt
@@ -41,6 +44,30 @@ GEOID_HEIGHT_M = 47  # geoid height for Cologne
 
 sshtunnel.SSH_TIMEOUT = 15.0
 sshtunnel.TUNNEL_TIMEOUT = 15.0
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+logger = logging.getLogger("OSN_data_backfill")
+
+parser = argparse.ArgumentParser(description="Manual ADS-B data backfill tool.")
+parser.add_argument("--start-date", required=True, help="First date to backfill, YYYY-MM-DD.")
+parser.add_argument("--end-date", required=True, help="Last date to backfill, YYYY-MM-DD.")
+parser.add_argument("--execute", action="store_true", help="Actually upload rows to production.")
+parser.add_argument("--confirm-production", action="store_true", help="Required with --execute.")
+parser.add_argument("--force-duplicate", action="store_true", help="Allow upload even if manifest already has the date.")
+parser.add_argument("--skip-reload", action="store_true", help="Skip PythonAnywhere reload after backfill.")
+parser.add_argument("--http-timeout-seconds", type=int, default=30)
+args = parser.parse_args()
+
+if not args.execute:
+    logger.info(
+        "dry_run no_database_changes start_date=%s end_date=%s",
+        args.start_date,
+        args.end_date,
+    )
+    sys.exit(0)
+
+if not args.confirm_production:
+    parser.error("--execute requires --confirm-production because this writes production rows")
 
 MYSQL_secrets_json = "./mysql_secrets.json"
 PYA_secrets_json = "./PYA_secrets.json"
@@ -93,8 +120,8 @@ def manifest_update(engine, table_name, processed_date, record_count, start_time
 
 # Obtain and format the date to retrieve data for (2 days ago)
 
-start_date = datetime.strptime('2026-05-24', '%Y-%m-%d')
-end_date = datetime.strptime('2026-05-29', '%Y-%m-%d')
+start_date = datetime.strptime(args.start_date, '%Y-%m-%d')
+end_date = datetime.strptime(args.end_date, '%Y-%m-%d')
 
 two_days_ago = datetime.now() - timedelta(days=2)
 
@@ -105,7 +132,7 @@ current_date = start_date
 
 while current_date <= end_date:
 
-    processed_date = current_date
+    processed_date = current_date.date()
 
     print("Processing %s"%(current_date))
 
@@ -674,12 +701,15 @@ while current_date <= end_date:
             engine = create_engine(engstr)
 
             query = text(
-                "SELECT max(processed_date) as max_date FROM manifest"
+                "SELECT COUNT(*) as record_count FROM manifest "
+                "WHERE processed_date = :processed_date AND status = 'SUCCESS'"
             )
-            result = pd.read_sql_query(query, con=engine)
-            max_date = result["max_date"].iloc[0]
+            result = pd.read_sql_query(
+                query, con=engine, params={"processed_date": current_date.date()}
+            )
+            already_processed = int(result["record_count"].iloc[0]) > 0
 
-        if True: 
+        if args.force_duplicate or not already_processed:
             # Set up the SSH tunnel with the RSA key
             with SSHTunnelForwarder(
                 (MYSQL_creds["SSH_ADDRESS"], 22),
@@ -725,6 +755,11 @@ while current_date <= end_date:
                 manifest_update(engine, MYSQL_creds["GNDINF_PROD_TABLE_NAME"], processed_date, gndinf_record_count, update_start_time, datetime.now(), 'SUCCESS', None)
 
                 print("Insertion in database done")
+        else:
+            logger.warning(
+                "skip_existing_manifest date=%s use_force_duplicate_to_override",
+                current_date.date(),
+            )
 
     # Move to the next day
     current_date += timedelta(days=1)
@@ -736,16 +771,18 @@ else:
 
 ### Reload Web app
 
-response = requests.post(
-    "https://{host}/api/v0/user/{username}/webapps/{domain_name}/reload/".format(
-        host=host, username=username, domain_name=domain_name
-    ),
-    headers={"Authorization": "Token {token}".format(token=token)},
-)
-
-if response.status_code == 200:
-    print("Web app reloaded successfully.")
-    print(response.content)
+if args.skip_reload:
+    logger.info("pythonanywhere_reload_skipped")
 else:
-    print(f"Error: Received status code {response.status_code}")
-    print("Response content:", response.content)
+    response = requests.post(
+        "https://{host}/api/v0/user/{username}/webapps/{domain_name}/reload/".format(
+            host=host, username=username, domain_name=domain_name
+        ),
+        headers={"Authorization": "Token {token}".format(token=token)},
+        timeout=args.http_timeout_seconds,
+    )
+
+    if response.status_code == 200:
+        logger.info("web_app_reloaded")
+    else:
+        logger.error("web_app_reload_failed status_code=%s", response.status_code)

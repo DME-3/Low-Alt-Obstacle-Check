@@ -1,3 +1,6 @@
+import argparse
+import sys
+
 from sqlalchemy import create_engine, MetaData, insert
 from datetime import datetime, timedelta
 from sshtunnel import SSHTunnelForwarder
@@ -5,9 +8,26 @@ import logging
 import json
 import paramiko
 
-# Enable SQLAlchemy logging for debugging (optional)
-logging.basicConfig()
-logging.getLogger('sqlalchemy.engine').setLevel(logging.INFO)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
+logger = logging.getLogger('backfill_manifest')
+
+parser = argparse.ArgumentParser(description='Manual manifest backfill tool.')
+parser.add_argument('--start-date', required=True, help='First date to backfill, YYYY-MM-DD.')
+parser.add_argument('--end-date', required=True, help='Last date to backfill, YYYY-MM-DD.')
+parser.add_argument('--execute', action='store_true', help='Actually write manifest rows.')
+parser.add_argument('--confirm-production', action='store_true', help='Required with --execute.')
+parser.add_argument('--sql-debug', action='store_true', help='Enable SQLAlchemy statement logging.')
+args = parser.parse_args()
+
+if args.sql_debug:
+    logging.getLogger('sqlalchemy.engine').setLevel(logging.INFO)
+
+if not args.execute:
+    logger.info('dry_run no_database_changes start_date=%s end_date=%s', args.start_date, args.end_date)
+    sys.exit(0)
+
+if not args.confirm_production:
+    parser.error('--execute requires --confirm-production because this writes production manifest rows')
 
 ed25519_key = paramiko.Ed25519Key(filename="./.ssh/id_ed25519")
 
@@ -95,8 +115,8 @@ with SSHTunnelForwarder(
     engine = create_engine(engstr)
 
     # Define the date range for backfilling
-    start_date = datetime.strptime('2025-12-22', '%Y-%m-%d')
-    end_date = datetime.strptime('2026-01-16', '%Y-%m-%d')
+    start_date = datetime.strptime(args.start_date, '%Y-%m-%d')
+    end_date = datetime.strptime(args.end_date, '%Y-%m-%d')
 
     # Call the backfill function
     backfill_manifest(engine, start_date, end_date)
