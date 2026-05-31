@@ -4,20 +4,24 @@ Audit date: 2026-05-31
 
 Branch: `refactor/adsb-pipeline-modernization`
 
+This document records the baseline audit taken before the modernization changes.
+Current branch behavior is described in `docs/architecture.md`,
+`docs/operations.md`, and `docs/security.md`.
+
 ## Scope
 
 This audit covers the production nightly ADS-B pipeline in `OSN_data_update.py`, the manual recovery tooling in `OSN_data_backfill.py` and `backfill_manifest.py`, repository structure, git history, data flow, database interactions, restart logic, configuration, secrets handling, logging, process lifecycle, failure modes, validation, and operational risks.
 
-The current production cron entry is:
+The baseline production cron entry was:
 
 ```cron
 0 2 * * * cd /home/dimitri/obstaclecheck/ && /home/dimitri/obstaclecheck/.venv/bin/python /home/dimitri/obstaclecheck/OSN_data_update.py >> /home/dimitri/OSN_log.txt 2>&1
 ```
 
-## Repository Structure
+## Repository Structure At Audit Start
 
-- `OSN_data_update.py`: production nightly entry point. It performs all work at module import time.
-- `OSN_data_backfill.py`: manual date-range recovery script. It duplicates most production logic and currently contains hard-coded dates.
+- `OSN_data_update.py`: production nightly entry point. At audit start, it performed all work at module import time.
+- `OSN_data_backfill.py`: manual date-range recovery script. At audit start, it duplicated most production logic and contained hard-coded dates.
 - `backfill_manifest.py`: manual manifest-population tool. It plans by default,
   targets test tables by default, and requires explicit confirmation before
   production writes.
@@ -48,7 +52,7 @@ Recurring patterns:
 
 ## Architecture Overview
 
-The current nightly flow is linear and monolithic:
+At audit start, the nightly flow was linear and monolithic:
 
 1. Load MySQL and PythonAnywhere secrets at import time.
 2. Compute the target day as two days before current server time.
@@ -233,7 +237,7 @@ Validation is currently implicit and late. Missing coverage includes:
 - Empty `svdata4_df` is handled in the backfill script but not in the production script.
 - `max_date < two_days_ago.date()` can fail if `max_date` is `NULL` or a different type.
 - `max(processed_date)` can skip missing dates before the max date.
-- `OSN_data_backfill.py` currently uses `if True` in the upload gate, bypassing the manifest duplicate check.
+- At audit start, `OSN_data_backfill.py` used `if True` in the upload gate, bypassing the manifest duplicate check.
 - `backfill_manifest.py` inserts recovery `SUCCESS` rows with zero counts. It now skips existing manifest successes unless `--force-duplicate` is provided, but operators should still audit real table contents before executing it.
 
 ## Technical Debt
