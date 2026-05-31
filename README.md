@@ -1,65 +1,76 @@
 # Low-Alt-Obstacle-Check
-  
-## General  
 
-This Python script is used to generate the data for the [Low Alt Cologne](https://www.lowaltcologne.org) website.  
+Production ADS-B data pipeline for the Low Alt Cologne site. The nightly job imports OpenSky ADS-B data, enriches it with terrain/population/obstacle data, identifies candidate low-altitude occurrences, publishes MySQL tables for the PythonAnywhere site, and reloads the site after a successful publish.
 
-The process comprises the steps described below.  
+## Current Entry Point
 
-Sources of data other than OSN may be used, as long as the data format is preserved. 
+```bash
+/home/dimitri/obstaclecheck/.venv/bin/python /home/dimitri/obstaclecheck/OSN_data_update.py
+```
 
-The script includes uploading the results to a MySQL server.
+The script is cron-compatible, but it now defaults to dry-run mode. Production upload requires explicit flags.
 
-requirements.txt lists required packages for all scripts (clean-up needed since more than the packages strictly necessary is included).  
+## Dry Run
 
-## 1 - Importing OSN data  
+```bash
+cd /home/dimitri/obstaclecheck
+/home/dimitri/obstaclecheck/.venv/bin/python OSN_data_update.py
+```
 
-Requisite:  
-- Functionnal Trino connection
-  
-User has to enter the appropriate start and end dates for querying the OSN database.  
+Dry-run mode performs no MySQL upload and no PythonAnywhere reload.
 
-The script connects to the Trino server, and queries data from 3 tables for the date corresponding to 2 days in the past. All results are merged in a single dataframe.
+## Test Upload
 
-Results are saved as pickles.
+```bash
+/home/dimitri/obstaclecheck/.venv/bin/python OSN_data_update.py \
+  --date 2026-05-29 \
+  --publish \
+  --target test \
+  --skip-reload
+```
 
-## 2 - Adding DEM Ground Elevation
+## Production Upload
 
-We now use a DEM obtained from processed LiDAR Airborne Surveys (LAS), available openly.
+```bash
+/home/dimitri/obstaclecheck/.venv/bin/python OSN_data_update.py \
+  --publish \
+  --target prod \
+  --confirm-production
+```
 
-The ground elevation at each point is simply read from the DEM GeoTIFF.
+## Recommended Cron
 
-## 3 - Adding population density
+```cron
+0 2 * * * cd /home/dimitri/obstaclecheck/ && /home/dimitri/obstaclecheck/.venv/bin/python /home/dimitri/obstaclecheck/OSN_data_update.py --publish --target prod --confirm-production --log-file /home/dimitri/OSN_pipeline.log >> /home/dimitri/OSN_log.txt 2>&1
+```
 
-Population density is read and added from a Copernicus GeoTIFF. It will be used to approximate whether the aircraft position is in a congested area or not.
+## Safety Features
 
-## 4 - Trajectory processing
+- Single-run lock with stale-lock recovery.
+- Process max-runtime guard.
+- Dry-run by default.
+- Production write protection.
+- Early manifest/idempotency check.
+- Transaction-scoped publish path with row-count verification.
+- PythonAnywhere reload timeout.
+- Structured stage logging with run IDs.
+- Validation before publish.
 
-Aircraft data is split into flights, and cumulative along-track distance information added (first point corresponds to distance = 0).
+## Tests And Lint
 
-## 5 - Load obstacle information and check min height
+```bash
+/home/dimitri/obstaclecheck/.venv/bin/python -m pytest
+/home/dimitri/obstaclecheck/.venv/bin/python -m ruff check OSN_data_update.py lac_pipeline tests
+```
 
-Obstacle data is loaded. Obstacles are determined from processing of LAS data, which is more accurate than the AIP provided data. This way, we can also consider all obstacles from 60 m of height.
+## Documentation
 
-For each trajectory point, the highest obstacle within an alerting perimeter defined in the rules of the air is determined. We then determine the minimum height allowable at that point, depending on whether the area is congested or not.
+- `docs/audit.md`
+- `docs/architecture.md`
+- `docs/security.md`
+- `docs/operations.md`
+- `docs/migration-notes.md`
 
-Finally, for all points, we determine a "dip", i.e. the difference between the minimum height and the actual aircraft height.
+## Important Limitations
 
-This diagram illustrates the various heights and and position parameters used:  
-
-![diagram](https://github.com/DME-3/Low-Alt-Obstacle-Check/raw/main/LowAltCologne_Definitions.png)
-
-## 6 - Process events
-
-We find all "events" (possible infractions), for both obstacles and ground clearance. Separate dataframes are created for easier processing.
-
-## 7 - Upload data
-
-Results are added to a MySQL database, for use by the web application.
-
-## Limitations
-
-Known limitations:
-
-- Some flights are split and appear as distinct flights in the data (distinct 'ref' identifiers), although the time difference does not exceed the detection threshold.
-- Obstacles are considered punctual, their horizontal extent is not taken into account.
+Results should be treated as candidate or possible low-altitude occurrences, not definitive legal infractions. Vertical datum assumptions, congested-area classification, and ADS-B quality filtering need further domain validation before stronger claims are made.

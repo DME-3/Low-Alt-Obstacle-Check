@@ -16,3 +16,5 @@ dataframes/
 reprocessing/
 .DS_Store
 fix_gnd_inf_table.py
+logs/
+*.log
