@@ -43,6 +43,7 @@ class RuntimeSettings:
     query_retry_delay_seconds: int
     ssh_timeout_seconds: float
     tunnel_timeout_seconds: float
+    show_results: int | None
 
     @property
     def dry_run(self) -> bool:
@@ -135,11 +136,25 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default=15.0,
         help="Tunnel establishment timeout for PythonAnywhere database tunnels.",
     )
+    parser.add_argument(
+        "--show_results",
+        "--show-results",
+        dest="show_results",
+        type=int,
+        metavar="N",
+        help=(
+            "In dry-run mode, print detected infraction counts and the first N "
+            "rows of inf/gndinf result tables."
+        ),
+    )
     return parser
 
 
 def parse_runtime_settings(argv: list[str] | None = None) -> RuntimeSettings:
-    args = build_arg_parser().parse_args(argv)
+    parser = build_arg_parser()
+    args = parser.parse_args(argv)
+    if args.show_results is not None and args.show_results < 0:
+        parser.error("--show_results must be greater than or equal to 0")
     run_id = uuid.uuid4().hex[:12]
     return RuntimeSettings(
         run_id=run_id,
@@ -158,6 +173,7 @@ def parse_runtime_settings(argv: list[str] | None = None) -> RuntimeSettings:
         query_retry_delay_seconds=max(0, args.query_retry_delay_seconds),
         ssh_timeout_seconds=args.ssh_timeout_seconds,
         tunnel_timeout_seconds=args.tunnel_timeout_seconds,
+        show_results=args.show_results,
     )
 
 

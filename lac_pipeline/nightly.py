@@ -310,6 +310,15 @@ def main(argv: list[str] | None = None) -> int:
                 )
 
         if settings.dry_run:
+            if settings.show_results is not None:
+                logger.info(
+                    "dry_run_results\n%s",
+                    format_dry_run_results(
+                        inf_result,
+                        gnd_inf_result,
+                        settings.show_results,
+                    ),
+                )
             logger.info(
                 "dry_run_complete no_database_changes target=%s date=%s",
                 publish_target.name,
@@ -349,3 +358,28 @@ def main(argv: list[str] | None = None) -> int:
     finally:
         if run_lock is not None:
             run_lock.release()
+
+
+def format_dry_run_results(inf_df, gndinf_df, rows: int) -> str:
+    row_limit = max(0, rows)
+    total = len(inf_df) + len(gndinf_df)
+    lines = [
+        "detected_infractions "
+        f"total={total} inf={len(inf_df)} gndinf={len(gndinf_df)}"
+    ]
+    if row_limit > 0:
+        lines.extend(
+            [
+                f"inf first {row_limit} rows:",
+                _format_table_head(inf_df, row_limit),
+                f"gndinf first {row_limit} rows:",
+                _format_table_head(gndinf_df, row_limit),
+            ]
+        )
+    return "\n".join(lines)
+
+
+def _format_table_head(frame, rows: int) -> str:
+    if frame.empty:
+        return "<empty>"
+    return frame.head(rows).to_string(index=False)

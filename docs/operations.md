@@ -17,6 +17,14 @@ For a specific Europe/Paris pipeline date:
 
 Dry-runs still query OpenSky and may write local pickles. The pipeline date is a Cologne local calendar day, so validation accepts the corresponding UTC boundary rows.
 
+To print detected candidate-infraction counts plus the first `N` rows of the `inf` and `gndinf` result tables during a dry-run:
+
+```bash
+/home/dimitri/obstaclecheck/.venv/bin/python OSN_data_update.py \
+  --date 2026-05-29 \
+  --show_results 5
+```
+
 ## Test Upload
 
 Upload to test tables and skip web reload:

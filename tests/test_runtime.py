@@ -25,6 +25,14 @@ def test_parse_runtime_settings_requires_explicit_publish_flag():
     assert settings.confirm_production is True
 
 
+def test_parse_runtime_settings_accepts_show_results_aliases():
+    underscore = parse_runtime_settings(["--show_results", "3"])
+    hyphen = parse_runtime_settings(["--show-results", "4"])
+
+    assert underscore.show_results == 3
+    assert hyphen.show_results == 4
+
+
 def test_pipeline_lock_acquire_and_release(tmp_path):
     lock_path = tmp_path / "nightly.lock"
     logger = logging.getLogger("test")
