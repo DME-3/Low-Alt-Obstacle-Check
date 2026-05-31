@@ -6,11 +6,12 @@ The two ADS-B enrichment merges no longer loop over every ICAO and repeatedly co
 
 The candidate-event builders no longer use dataframe groupby/apply to select representative rows. They use group index selection (`idxmin` / `idxmax`) and always return schema-compatible empty frames.
 
+Raster enrichment now opens files inside helper functions and reads each raster band once per enrichment step instead of reopening or repeatedly reading inside row-wise lambdas.
+
 ## Remaining Hotspots
 
-- Raster lookup still uses row-wise `apply` and reads raster band data repeatedly.
-- Coordinate transformation still uses row-wise `apply`.
-- Along-track distance is still computed with nested Python loops and dataframe `.loc` writes.
+- Raster lookup still iterates point by point after reading the band once.
+- Along-track distance is still computed with grouped Python loops and dataframe `.loc` writes.
 - Obstacle proximity is still point-by-point against all obstacles.
 - OpenSky query result pickle retention is not enforced automatically.
 

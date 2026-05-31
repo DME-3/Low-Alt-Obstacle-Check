@@ -1,20 +1,19 @@
-import atexit
 import json
 import logging
 import sys
-from collections import defaultdict
 from datetime import datetime, timedelta
-from math import asin, cos, radians, sin, sqrt
 
-import numpy as np
-import pandas as pd
 import paramiko
-import rasterio
 import sshtunnel
 from pyopensky.trino import Trino
-from pyproj import Transformer
 
 from lac_pipeline.events import build_event_tables
+from lac_pipeline.geospatial import (
+    add_ground_elevation,
+    add_population_density,
+    add_projected_coordinates,
+)
+from lac_pipeline.obstacles import ClearanceConfig, add_obstacle_clearance, load_obstacles
 from lac_pipeline.publishing import (
     build_publish_target,
     ensure_publishable_manifest_state,
@@ -33,6 +32,7 @@ from lac_pipeline.runtime import (
     retry,
     stage,
 )
+from lac_pipeline.trajectory import add_trajectory_columns, haversine
 from lac_pipeline.transforms import merge_asof_by_icao
 from lac_pipeline.validation import validate_pipeline_outputs
 
@@ -258,34 +258,9 @@ final_df = final_df.drop(columns=["hour", "mintime_x", "maxtime", "mintime_y"])
 
 ## Add DEM ground elevation information
 
-crs_transformer = Transformer.from_crs(
-    4326, 25832, always_xy=True
-)  # Transformer from WGS-84 to ETRS89-LAEA (3035 for EU-DEM v1.1, 25832 for LAS DEM)
-
-def transform_coords(lon, lat):
-    return crs_transformer.transform(lon, lat)
-
-final_df["gnd_elev"] = np.nan
-
-dem_src = rasterio.open("./resources/Cologne_DEM_merged_from_LAS_25x25.tif")
-atexit.register(dem_src.close)
-
-final_df["etrs89_x"], final_df["etrs89_y"] = zip(
-    *final_df.apply(lambda row: transform_coords(row["lon"], row["lat"]), axis=1)
-)
-
-def get_elevation(x, y, dem, default_value=None):
-    try:
-        row, col = dem.index(x, y)
-        return dem.read(1)[row, col]
-    except IndexError:
-        return default_value
-
-final_df["gnd_elev"] = final_df.apply(
-    lambda row: get_elevation(
-        row["etrs89_x"], row["etrs89_y"], dem_src, row.get("gnd_elev", None)
-    ),
-    axis=1,
+final_df = add_projected_coordinates(final_df)
+final_df = add_ground_elevation(
+    final_df, "./resources/Cologne_DEM_merged_from_LAS_25x25.tif"
 )
 
 missing_elev_count = final_df["gnd_elev"].isnull().sum()
@@ -294,206 +269,27 @@ final_df = final_df.dropna(subset=["gnd_elev"])
 
 ## Add population density
 
-final_df["pop_density"] = np.nan
-
-pop_src = rasterio.open(
-    "./resources/GHS_POP_E2020_GLOBE_R2023A_4326_3ss_V1_0_Cologne.tif"
-)
-atexit.register(pop_src.close)
-
-def get_population(lon, lat, pop_src):
-    row, col = pop_src.index(lon, lat)
-    return pop_src.read(1)[row, col]
-
-final_df["pop_density"] = final_df.apply(
-    lambda row: get_population(row["lon"], row["lat"], pop_src), axis=1
+final_df = add_population_density(
+    final_df, "./resources/GHS_POP_E2020_GLOBE_R2023A_4326_3ss_V1_0_Cologne.tif"
 )
 
-## Process df with distance information
+## Process trajectory distance information
 
-def haversine(pt1, pt2):
-    """
-    Calculate the great circle distance between two points
-    on the earth (specified in decimal degrees)
-    Returned units are in metres. Differs slightly from PostGIS geography
-    distance, which uses a spheroid, rather than a sphere.
-    """
-
-    lat1, lon1 = pt1[0], pt1[1]
-    lat2, lon2 = pt2[0], pt2[1]
-
-    # convert decimal degrees to radians
-    lon1, lat1, lon2, lat2 = map(radians, [lon1, lat1, lon2, lat2])
-
-    # haversine formula
-    dlon = lon2 - lon1
-    dlat = lat2 - lat1
-    a = sin(dlat / 2.0) ** 2 + cos(lat1) * cos(lat2) * sin(dlon / 2.0) ** 2
-    c = 2 * asin(sqrt(a))
-    r = 6371000  # Radius of earth in m
-    return c * r
-
-final_df["prev_time"] = final_df.groupby("icao24")["time"].shift()
-final_df["closest_obst_name"] = ""
-final_df["inf_flt"] = False
-final_df["inf_pt"] = False
-final_df["gnd_inf_flt"] = False
-final_df["gnd_inf_pt"] = False
-final_df["min_hgt"] = np.nan
-final_df["congested"] = final_df["pop_density"] > 2
-
-map_time_traj = defaultdict(dict)
-
-for icao, sfinal_df in final_df.groupby("icao24"):
-    map_time_traj[icao][sfinal_df.iloc[0]["time"]] = icao + "_1"
-    n_traj = 1
-    for i in range(1, sfinal_df.shape[0]):
-        time = sfinal_df.iloc[i]["time"]
-        diff = abs(int(time) - int(sfinal_df.iloc[i]["prev_time"]))
-        if diff > TIME_BETWEEN_TRAJS:
-            n_traj += 1
-        map_time_traj[icao][time] = icao + "_" + str(int(n_traj))
-
-final_df["ref"] = (
-    final_df.apply(lambda x: map_time_traj[x.icao24][x.time], axis=1)
-    + "_"
-    + final_df.time.apply(lambda x: pd.to_datetime(x, unit="s").strftime("%d%m%y"))
-)
-
-# Add a distance column and compute cumulative along-track distance for each flight
-final_df["dist"] = 0.0
-for flight in final_df.ref.unique():
-    current = final_df[
-        final_df["ref"].isin([flight])
-    ]  # gets the trajectory of the current flight
-    previous_pt = None
-    previous_dist = 0
-    for row in current.itertuples():
-        current_pt = (float(row.lat), float(row.lon))
-        if previous_pt is not None:  # Skip the distance calculation for the first point
-            delta_dist = haversine(previous_pt, current_pt)
-            final_df.loc[row[0], "dist"] = previous_dist + delta_dist
-        previous_pt = current_pt
-        previous_dist = final_df.loc[row[0], "dist"]
+final_df = add_trajectory_columns(final_df, TIME_BETWEEN_TRAJS, haversine)
 
 ## Load obstacle information and check min height
 
-path_to_obstacles_json = "./resources/LAC_obstacles_v1.csv"
-
-obs_df = pd.read_csv(path_to_obstacles_json)
-
-obs_df.rename(columns={"h": "height_m"}, inplace=True)
-
-obs_df = obs_df.sort_values(
-    by=["height_m"]
+obs_df = load_obstacles("./resources/LAC_obstacles_v1.csv")
+clearance_config = ClearanceConfig(
+    congested_alert_distance_m=CONGESTED_ALERT_DISTANCE_M,
+    congested_alert_delta_height_m=CONGESTED_ALERT_DELTA_HEIGHT_M,
+    noncongested_alert_distance_m=NONCONGESTED_ALERT_DISTANCE_M,
+    noncongested_alert_delta_height_m=NONCONGESTED_ALERT_DELTA_HEIGHT_M,
+    geoid_height_m=GEOID_HEIGHT_M,
 )
-# Sort by increasing height so shorter obstacles do not overwrite the min_hgt profile
-# when an aircraft is inside multiple obstacle clearance areas.
-
-# new. Test if this should not be done before adding the ref and distance info
-final_df = final_df.reset_index(drop=True)
-
-def update_closest_obstacle_xy(final_df, obstacles_df):
-    # Extract the coordinates and obstacle heights
-    final_coords = final_df[["etrs89_x", "etrs89_y"]].to_numpy()
-    obstacle_coords = obstacles_df[["x", "y"]].to_numpy()
-    obstacle_heights = obstacles_df["height_m"].to_numpy()
-    obstacle_names = obstacles_df["LAC_Name"].to_numpy()
-    obstacle_ground_elevs = obstacles_df["gnd_elev"].to_numpy()
-
-    # Iterate over each point in final_df and calculate distances
-    for i, (x_f, y_f) in enumerate(final_coords):
-        radius = (
-            CONGESTED_ALERT_DISTANCE_M
-            if final_df.at[i, "congested"]
-            else NONCONGESTED_ALERT_DISTANCE_M
-        )
-
-        # Compare squared distances to avoid computing square roots for every obstacle.
-        squared_radius = radius**2
-
-        # Calculate squared Euclidean distances to all obstacles
-        distances_sq = (obstacle_coords[:, 0] - x_f) ** 2 + (
-            obstacle_coords[:, 1] - y_f
-        ) ** 2
-
-        # Filter obstacles within the radius
-        within_radius = distances_sq <= squared_radius
-
-        # If there are obstacles within the radius, find the tallest one
-        if np.any(within_radius):
-            # Get the indices of obstacles within the radius
-            obstacles_in_radius_idx = np.where(within_radius)[0]
-
-            # Find the index of the tallest obstacle within the radius
-            tallest_idx = obstacles_in_radius_idx[
-                np.argmax(obstacle_heights[obstacles_in_radius_idx])
-            ]
-
-            # Update final_df with the tallest obstacle details
-            tallest_obstacle_name = obstacle_names[tallest_idx]
-            tallest_obstacle_height = obstacle_heights[tallest_idx]
-            tallest_obstacle_elev = obstacle_ground_elevs[tallest_idx]
-
-            final_df.at[i, "closest_obst_name"] = tallest_obstacle_name
-
-            # Calculate minimum height against the tallest obstacle in the alert radius.
-            # min_hgt is referenced to the Geoid !
-            final_df.at[i, "min_hgt"] = (
-                GEOID_HEIGHT_M
-                + np.float32(tallest_obstacle_elev)
-                + np.float32(tallest_obstacle_height)
-                + (
-                    CONGESTED_ALERT_DELTA_HEIGHT_M
-                    if final_df.at[i, "congested"]
-                    else NONCONGESTED_ALERT_DELTA_HEIGHT_M
-                )
-            )
-        else:
-            final_df.at[i, "closest_obst_name"] = "ground"
-            final_df.at[i, "min_hgt"] = (
-                GEOID_HEIGHT_M
-                + final_df.at[i, "gnd_elev"]
-                + (
-                    CONGESTED_ALERT_DELTA_HEIGHT_M
-                    if final_df.at[i, "congested"]
-                    else NONCONGESTED_ALERT_DELTA_HEIGHT_M
-                )
-            )
-
-    return final_df
-
-final_df = update_closest_obstacle_xy(final_df, obs_df)
-
-final_df["dip"] = final_df["min_hgt"] - final_df["geoaltitude"]
-
-## Add infraction information
-
-# Rule for 'inf_pt'
-final_df["inf_pt"] = final_df.apply(
-    lambda row: True
-    if row["dip"] > 0 and row["closest_obst_name"] != "ground"
-    else False,
-    axis=1,
-)
-
-# Rule for 'gnd_inf_pt'
-final_df["gnd_inf_pt"] = final_df.apply(
-    lambda row: True
-    if (row["dip"] > 0 and row["closest_obst_name"] == "ground")
-    else False,
-    axis=1,
-)
-
-# Group by 'ref' and update 'inf_flt' based on 'inf_pt'
-final_df["inf_flt"] = final_df.groupby("ref")["inf_pt"].transform("any")
-
-# Group by 'ref' and update 'gnd_inf_flt' based on 'gnd_inf_pt'
-final_df["gnd_inf_flt"] = final_df.groupby("ref")["gnd_inf_pt"].transform("any")
+final_df = add_obstacle_clearance(final_df, obs_df, clearance_config)
 
 final_df = final_df.drop(columns=["serials", "nacv"])
-
-final_df[final_df["gnd_inf_pt"]].callsign.unique()
 
 missing_callsign = final_df["callsign"].isnull().sum()
 logger.info("null_count column=callsign rows=%s", missing_callsign)
