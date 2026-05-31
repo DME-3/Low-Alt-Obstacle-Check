@@ -1,4 +1,7 @@
+import atexit
 import json
+import logging
+import sys
 from collections import defaultdict
 from datetime import datetime, timedelta
 from math import asin, cos, radians, sin, sqrt
@@ -7,14 +10,53 @@ import numpy as np
 import pandas as pd
 import paramiko
 import rasterio
-import requests
 import sshtunnel
 from pyopensky.trino import Trino
 from pyproj import Transformer
-from sqlalchemy import create_engine, text, MetaData, insert
-from sshtunnel import SSHTunnelForwarder
+
+from lac_pipeline.publishing import (
+    build_publish_target,
+    date_fully_published,
+    mysql_engine_via_tunnel,
+    publish_dataframes,
+    publish_empty_day,
+    reload_pythonanywhere,
+    require_publish_allowed,
+)
+from lac_pipeline.runtime import (
+    LockError,
+    PipelineLock,
+    configure_logging,
+    install_max_runtime_guard,
+    parse_runtime_settings,
+    retry,
+    stage,
+)
+from lac_pipeline.validation import validate_pipeline_outputs
 
 update_start_time = datetime.now()
+settings = parse_runtime_settings()
+configure_logging(settings)
+logger = logging.getLogger("lac_pipeline.nightly")
+
+try:
+    require_publish_allowed(
+        settings.publish, settings.target, settings.confirm_production
+    )
+    run_lock = PipelineLock(
+        settings.lock_file,
+        settings.run_id,
+        settings.stale_lock_seconds,
+        logger,
+    )
+    run_lock.acquire()
+    install_max_runtime_guard(settings.max_runtime_seconds, logger)
+except LockError as exc:
+    logger.error("lock_unavailable error=%s", exc)
+    sys.exit(75)
+except Exception as exc:
+    logger.error("startup_failed error=%s", exc)
+    sys.exit(64)
 
 LAT_MIN, LAT_MAX = 50.88385859501204322, 50.98427935836787128
 LON_MIN, LON_MAX = 6.85029965503896943, 7.005  # 7.03641128126701965
@@ -39,8 +81,8 @@ N_MIN = 5
 
 GEOID_HEIGHT_M = 47  # geoid height for Cologne
 
-sshtunnel.SSH_TIMEOUT = 15.0
-sshtunnel.TUNNEL_TIMEOUT = 15.0
+sshtunnel.SSH_TIMEOUT = settings.ssh_timeout_seconds
+sshtunnel.TUNNEL_TIMEOUT = settings.tunnel_timeout_seconds
 
 MYSQL_secrets_json = "./mysql_secrets.json"
 PYA_secrets_json = "./PYA_secrets.json"
@@ -51,55 +93,42 @@ with open(MYSQL_secrets_json) as MYSQL_secrets:
 with open(PYA_secrets_json) as PYA_secrets:
     PYA_creds = json.load(PYA_secrets)
 
-username = PYA_creds["PYA_username"]
-token = PYA_creds["PYA_token"]
-host = PYA_creds["PYA_host"]
-domain_name = PYA_creds["PYA_domain"]
-
 ed25519_key = paramiko.Ed25519Key(filename="./.ssh/id_ed25519")
+publish_target = build_publish_target(MYSQL_creds, settings.target)
+logger.info(
+    "pipeline_start mode=%s target=%s publish=%s",
+    "dry-run" if settings.dry_run else "publish",
+    publish_target.name,
+    settings.publish,
+)
 
-def manifest_update(engine, table_name, processed_date, record_count, start_time, end_time, status, error_message=None):
-
-    try:
-
-        if isinstance(start_time, int):
-            start_time = datetime.fromtimestamp(start_time)
-        if isinstance(end_time, int):
-            end_time = datetime.fromtimestamp(end_time)
-
-        duration_sec = int((end_time - start_time).total_seconds())
-
-        metadata = MetaData()
-        metadata.reflect(bind=engine)
-        manifest_table = metadata.tables['manifest']
-
-        insert_stmt = insert(manifest_table).values(
-            table_name=table_name,
-            processed_date=processed_date,
-            record_count=record_count,
-            start_time=start_time,
-            end_time=end_time,
-            duration_sec=duration_sec,
-            status=status,
-            error_message=error_message
-        )
-
-        with engine.begin() as connection:
-            connection.execute(insert_stmt)
-            print(f"Manifest entry added for table: {table_name}")
-
-    except Exception as e:
-        print(f"Failed to log update to manifest table: {e}")
-
-# Obtain and format the date to retrieve data for (2 days ago)
-two_days_ago = datetime.now() - timedelta(days=2)
+# Obtain and format the date to retrieve data for (2 days ago by default)
+if settings.target_date:
+    two_days_ago = datetime.strptime(settings.target_date, "%Y-%m-%d")
+else:
+    two_days_ago = datetime.now() - timedelta(days=2)
 date_string = two_days_ago.strftime("%Y-%m-%d")
+logger.info("target_date date=%s", date_string)
 start = two_days_ago.replace(hour=0, minute=0, second=0, microsecond=0)
 end = two_days_ago.replace(hour=23, minute=59, second=59, microsecond=999999)
 start_time = int(start.timestamp())
 start_hour = start_time - (start_time % 3600)
 end_time = int(end.timestamp())
 end_hour = end_time - (end_time % 3600)
+
+if settings.publish:
+    with stage(logger, "early_manifest_check"):
+        with mysql_engine_via_tunnel(MYSQL_creds, ed25519_key, publish_target) as engine:
+            with engine.connect() as connection:
+                if date_fully_published(
+                    connection, two_days_ago.date(), publish_target.table_names
+                ):
+                    logger.info(
+                        "date_already_published date=%s target=%s",
+                        date_string,
+                        publish_target.name,
+                    )
+                    sys.exit(0)
 
 # First query for State Vectors
 svdata4_query = (
@@ -113,13 +142,38 @@ svdata4_query = (
     f" ORDER BY time"
 )
 
-print("Connecting to OSN database...")
-trino = Trino()
-svdata4_df = trino.query(
-    svdata4_query,
-    cached=False,
-    compress=True,
-)
+with stage(logger, "query_state_vectors"):
+    svdata4_df = retry(
+        "state_vectors_data4",
+        settings.query_attempts,
+        settings.query_retry_delay_seconds,
+        logger,
+        lambda: Trino().query(
+            svdata4_query,
+            cached=False,
+            compress=True,
+        ),
+    )
+logger.info("query_rows table=state_vectors_data4 rows=%s", len(svdata4_df))
+
+if svdata4_df.empty:
+    logger.warning("empty_source_day date=%s", date_string)
+    if settings.publish:
+        with stage(logger, "publish_empty_day"):
+            with mysql_engine_via_tunnel(
+                MYSQL_creds, ed25519_key, publish_target
+            ) as engine:
+                publish_empty_day(
+                    engine,
+                    publish_target,
+                    two_days_ago.date(),
+                    update_start_time,
+                    logger,
+                )
+    else:
+        logger.info("dry_run_empty_day no_database_changes date=%s", date_string)
+    logger.info("pipeline_complete status=empty_source_day")
+    sys.exit(0)
 
 # Save svdata4 pickle
 svdata4_df.to_pickle(f"./OSN_pickles/svdata4df_new_{date_string}.pkl")
@@ -136,12 +190,18 @@ ops_sts_query = (
     f" ORDER by mintime"
 )
 
-print("Connecting to OSN database...")
-trino = Trino()
-ops_sts_df = trino.query(
-    ops_sts_query,
-    cached=False,
-)
+with stage(logger, "query_operational_status"):
+    ops_sts_df = retry(
+        "operational_status_data4",
+        settings.query_attempts,
+        settings.query_retry_delay_seconds,
+        logger,
+        lambda: Trino().query(
+            ops_sts_query,
+            cached=False,
+        ),
+    )
+logger.info("query_rows table=operational_status_data4 rows=%s", len(ops_sts_df))
 
 ops_sts_df["time"] = ops_sts_df["mintime"].astype("int64")
 
@@ -188,12 +248,18 @@ posdata4_query = (
     f" ORDER by mintime"
 )
 
-print("Connecting to OSN database...")
-trino = Trino()
-posdata4_df = trino.query(
-    posdata4_query,
-    cached=False,
-)
+with stage(logger, "query_position_data"):
+    posdata4_df = retry(
+        "position_data4",
+        settings.query_attempts,
+        settings.query_retry_delay_seconds,
+        logger,
+        lambda: Trino().query(
+            posdata4_query,
+            cached=False,
+        ),
+    )
+logger.info("query_rows table=position_data4 rows=%s", len(posdata4_df))
 
 posdata4_df["time"] = posdata4_df["mintime"].astype("int64")
 
@@ -237,6 +303,7 @@ def transform_coords(lon, lat):
 final_df["gnd_elev"] = np.nan
 
 dem_src = rasterio.open("./resources/Cologne_DEM_merged_from_LAS_25x25.tif")
+atexit.register(dem_src.close)
 
 final_df["etrs89_x"], final_df["etrs89_y"] = zip(
     *final_df.apply(lambda row: transform_coords(row["lon"], row["lat"]), axis=1)
@@ -257,7 +324,7 @@ final_df["gnd_elev"] = final_df.apply(
 )
 
 missing_elev_count = final_df["gnd_elev"].isnull().sum()
-print(f"Number of rows with None or NaN in 'gnd_elev': {missing_elev_count}")
+logger.info("null_count column=gnd_elev rows=%s", missing_elev_count)
 final_df = final_df.dropna(subset=["gnd_elev"])
 
 ## Add population density
@@ -267,6 +334,7 @@ final_df["pop_density"] = np.nan
 pop_src = rasterio.open(
     "./resources/GHS_POP_E2020_GLOBE_R2023A_4326_3ss_V1_0_Cologne.tif"
 )
+atexit.register(pop_src.close)
 
 def get_population(lon, lat, pop_src):
     row, col = pop_src.index(lon, lat)
@@ -461,7 +529,7 @@ final_df = final_df.drop(columns=["serials", "nacv"])
 final_df[final_df["gnd_inf_pt"]].callsign.unique()
 
 missing_callsign = final_df["callsign"].isnull().sum()
-print(f"Number of rows with None or NaN in 'callsign': {missing_callsign}")
+logger.info("null_count column=callsign rows=%s", missing_callsign)
 final_df = final_df.dropna(subset=["callsign"])
 
 ## Create infraction tables
@@ -628,99 +696,60 @@ inf_record_count = len(inf_result)
 gndinf_record_count = len(gnd_inf_result)
 processed_date = two_days_ago.date()
 
-### Upload data to the MySQL server
+### Validate and optionally publish data
 
-with SSHTunnelForwarder(
-    (MYSQL_creds["SSH_ADDRESS"], 22),
-    ssh_username=MYSQL_creds["SSH_USERNAME"],
-    ssh_pkey=ed25519_key,  # Use the loaded RSA key
-    remote_bind_address=(
-        MYSQL_creds["REMOTE_BIND_ADDRESS"],
-        MYSQL_creds["REMOTE_BIND_PORT"],
-    ),
-    allow_agent=False,
-) as tunnel:
-    engstr = (
-        "mysql+pymysql://"
-        + MYSQL_creds["SSH_USERNAME"]
-        + ":"
-        + MYSQL_creds["PYANYWHERE_PASSWORD"]
-        + "@127.0.0.1:"
-        + str(tunnel.local_bind_port)
-        + "/dme3$"
-        + MYSQL_creds["PROD_DATABASE_NAME"]
-    )
-
-    engine = create_engine(engstr)
-
-    query = text(
-        "SELECT max(processed_date) as max_date FROM manifest"
-    )
-    result = pd.read_sql_query(query, con=engine)
-    max_date = result["max_date"].iloc[0]
-
-if max_date < two_days_ago.date():
-    # Set up the SSH tunnel with the RSA key
-    with SSHTunnelForwarder(
-        (MYSQL_creds["SSH_ADDRESS"], 22),
-        ssh_username=MYSQL_creds["SSH_USERNAME"],
-        ssh_pkey=ed25519_key,
-        remote_bind_address=(
-            MYSQL_creds["REMOTE_BIND_ADDRESS"],
-            MYSQL_creds["REMOTE_BIND_PORT"],
-        ),
-        allow_agent=False,
-    ) as tunnel:
-        print("connected")
-
-        engstr = (
-            "mysql+pymysql://"
-            + MYSQL_creds["SSH_USERNAME"]
-            + ":"
-            + MYSQL_creds["PYANYWHERE_PASSWORD"]
-            + "@127.0.0.1:"
-            + str(tunnel.local_bind_port)
-            + "/dme3$"
-            + MYSQL_creds["PROD_DATABASE_NAME"]
-        )
-
-        engine = create_engine(engstr)
-
-        print("step 1")
-        final_df.to_sql(
-            con=engine, name=MYSQL_creds["MAIN_PROD_TABLE_NAME"], if_exists="append"
-        )
-        manifest_update(engine, MYSQL_creds["MAIN_PROD_TABLE_NAME"], processed_date, gdf_record_count, update_start_time, datetime.now(), 'SUCCESS', None)
-
-        print("step 2")
-        inf_result.to_sql(
-            con=engine, name=MYSQL_creds["INF_PROD_TABLE_NAME"], if_exists="append"
-        )
-        manifest_update(engine, MYSQL_creds["INF_PROD_TABLE_NAME"], processed_date, inf_record_count, update_start_time, datetime.now(), 'SUCCESS', None)
-
-        print("step 3")
-        gnd_inf_result.to_sql(
-            con=engine, name=MYSQL_creds["GNDINF_PROD_TABLE_NAME"], if_exists="append"
-        )
-        manifest_update(engine, MYSQL_creds["GNDINF_PROD_TABLE_NAME"], processed_date, gndinf_record_count, update_start_time, datetime.now(), 'SUCCESS', None)
-
-        print("Insertion in database done")
-else:
-    print('Date already in database, exiting...')
-    exit()
-
-### Reload Web app
-
-response = requests.post(
-    "https://{host}/api/v0/user/{username}/webapps/{domain_name}/reload/".format(
-        host=host, username=username, domain_name=domain_name
-    ),
-    headers={"Authorization": "Token {token}".format(token=token)},
+logger.info(
+    "output_row_counts main=%s inf=%s gndinf=%s",
+    gdf_record_count,
+    inf_record_count,
+    gndinf_record_count,
 )
 
-if response.status_code == 200:
-    print("Web app reloaded successfully.")
-    print(response.content)
+with stage(logger, "validate_outputs"):
+    validation_results = validate_pipeline_outputs(
+        final_df, inf_result, gnd_inf_result, processed_date
+    )
+    for result in validation_results:
+        logger.info(
+            "validation_result frame=%s rows=%s null_counts=%s",
+            result.name,
+            result.row_count,
+            result.null_counts,
+        )
+
+if settings.dry_run:
+    logger.info(
+        "dry_run_complete no_database_changes target=%s date=%s",
+        publish_target.name,
+        processed_date,
+    )
+    logger.info("pipeline_complete status=dry_run")
+    sys.exit(0)
+
+with stage(logger, "publish_dataframes"):
+    with mysql_engine_via_tunnel(MYSQL_creds, ed25519_key, publish_target) as engine:
+        publish_counts = publish_dataframes(
+            engine,
+            publish_target,
+            final_df,
+            inf_result,
+            gnd_inf_result,
+            processed_date,
+            update_start_time,
+            logger,
+        )
+    logger.info(
+        "publish_complete target=%s main=%s inf=%s gndinf=%s",
+        publish_target.name,
+        publish_counts.main_rows,
+        publish_counts.inf_rows,
+        publish_counts.gndinf_rows,
+    )
+
+if settings.skip_reload:
+    logger.info("pythonanywhere_reload_skipped")
 else:
-    print(f"Error: Received status code {response.status_code}")
-    print("Response content:", response.content)
+    with stage(logger, "pythonanywhere_reload"):
+        reload_pythonanywhere(PYA_creds, settings.http_timeout_seconds, logger)
+
+logger.info("pipeline_complete status=success")
