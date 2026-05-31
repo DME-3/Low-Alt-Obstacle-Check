@@ -18,7 +18,9 @@ The current production cron entry is:
 
 - `OSN_data_update.py`: production nightly entry point. It performs all work at module import time.
 - `OSN_data_backfill.py`: manual date-range recovery script. It duplicates most production logic and currently contains hard-coded dates.
-- `backfill_manifest.py`: manual manifest-population script. It writes directly to production through an SSH tunnel.
+- `backfill_manifest.py`: manual manifest-population tool. It plans by default,
+  targets test tables by default, and requires explicit confirmation before
+  production writes.
 - `resources/`: tracked static DEM, population raster, and obstacle CSV. Current size: about 1.2M.
 - `OSN_pickles/`: ignored generated OpenSky pickles. Current local size: about 4.9G.
 - `dataframes/`: ignored generated JSON dataframe output. Current local size: about 246M.
@@ -110,7 +112,7 @@ Known test/staging table names exist in configuration, but production scripts wr
 ### High
 
 - Backfill scripts can write production data with hard-coded dates and no operator confirmation.
-- `backfill_manifest.py` enables SQLAlchemy engine logging, which is too noisy for production diagnostics and may risk exposing connection details in some configurations.
+- Manual manifest backfill remains a powerful recovery tool; it now avoids SQLAlchemy engine echo logging and requires explicit execution/production confirmation.
 - Secrets are loaded at import time and stored in module globals.
 - Exceptions around manifest writes are swallowed with `print`, so operational failure can be hidden.
 - `exit()` is called directly from the script, which complicates wrapping and testing.
@@ -218,7 +220,7 @@ Validation is currently implicit and late. Missing coverage includes:
 
 - Secret files and SSH keys are correctly ignored by git.
 - Production scripts still rely on secrets in predictable local relative paths.
-- Backfill tooling writes directly to production without dry-run, confirmation, or target selection.
+- Backfill tooling now defaults to planning/dry-run behavior, has target selection, and requires explicit production confirmation; keep those guarantees in future recovery tools.
 - SQL construction for OpenSky queries is string-based, but values are internally generated from constants and timestamps. ICAO values come from prior query results and should still be treated carefully.
 - MySQL table names come from secrets/config. They should be validated against an allowlist before use.
 - Logging should avoid full HTTP response bodies and connection strings.
@@ -232,7 +234,7 @@ Validation is currently implicit and late. Missing coverage includes:
 - `max_date < two_days_ago.date()` can fail if `max_date` is `NULL` or a different type.
 - `max(processed_date)` can skip missing dates before the max date.
 - `OSN_data_backfill.py` currently uses `if True` in the upload gate, bypassing the manifest duplicate check.
-- `backfill_manifest.py` inserts `SUCCESS` rows with zero counts without checking real table contents.
+- `backfill_manifest.py` inserts recovery `SUCCESS` rows with zero counts. It now skips existing manifest successes unless `--force-duplicate` is provided, but operators should still audit real table contents before executing it.
 
 ## Technical Debt
 

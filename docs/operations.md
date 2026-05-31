@@ -128,23 +128,37 @@ Execute production publishes:
   --confirm-production
 ```
 
-Manifest backfill dry-run:
-
-```bash
-/home/dimitri/obstaclecheck/.venv/bin/python backfill_manifest.py \
-  --start-date 2026-05-24 \
-  --end-date 2026-05-29
-```
-
-Manifest backfill execution:
+Manifest backfill dry-run for test target:
 
 ```bash
 /home/dimitri/obstaclecheck/.venv/bin/python backfill_manifest.py \
   --start-date 2026-05-24 \
   --end-date 2026-05-29 \
+  --target test
+```
+
+Manifest backfill execution for test target:
+
+```bash
+/home/dimitri/obstaclecheck/.venv/bin/python backfill_manifest.py \
+  --start-date 2026-05-24 \
+  --end-date 2026-05-29 \
+  --target test \
+  --execute
+```
+
+Manifest backfill execution for production:
+
+```bash
+/home/dimitri/obstaclecheck/.venv/bin/python backfill_manifest.py \
+  --start-date 2026-05-24 \
+  --end-date 2026-05-29 \
+  --target prod \
   --execute \
   --confirm-production
 ```
+
+Use `--force-duplicate` only when deliberately inserting additional manifest rows for an audited recovery.
 
 ## Artifact Retention
 
