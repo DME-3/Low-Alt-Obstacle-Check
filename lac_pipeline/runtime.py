@@ -8,11 +8,11 @@ import signal
 import sys
 import time
 import uuid
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Iterator, Optional, TypeVar
-
+from typing import TypeVar
 
 T = TypeVar("T")
 
@@ -28,7 +28,7 @@ class MaxRuntimeExceeded(TimeoutError):
 @dataclass(frozen=True)
 class RuntimeSettings:
     run_id: str
-    target_date: Optional[str]
+    target_date: str | None
     publish: bool
     target: str
     confirm_production: bool
@@ -36,7 +36,7 @@ class RuntimeSettings:
     lock_file: Path
     stale_lock_seconds: int
     max_runtime_seconds: int
-    log_file: Optional[Path]
+    log_file: Path | None
     log_level: str
     http_timeout_seconds: int
     query_attempts: int
@@ -138,7 +138,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def parse_runtime_settings(argv: Optional[list[str]] = None) -> RuntimeSettings:
+def parse_runtime_settings(argv: list[str] | None = None) -> RuntimeSettings:
     args = build_arg_parser().parse_args(argv)
     run_id = uuid.uuid4().hex[:12]
     return RuntimeSettings(
@@ -324,7 +324,7 @@ def retry(
     logger: logging.Logger,
     operation: Callable[[], T],
 ) -> T:
-    last_exc: Optional[BaseException] = None
+    last_exc: BaseException | None = None
     for attempt in range(1, attempts + 1):
         try:
             return operation()

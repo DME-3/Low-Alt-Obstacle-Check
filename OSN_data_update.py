@@ -63,7 +63,9 @@ LON_MIN, LON_MAX = 6.85029965503896943, 7.005  # 7.03641128126701965
 ALT_MIN, ALT_MAX = (
     0,
     750,
-)  # update from 700 m to 750 m, in line with CTR limit at 2500 ft plus margin (and accounting for Geoid Height)
+)
+# Updated from 700 m to 750 m for the CTR limit at 2500 ft plus margin.
+# The margin also accounts for the Cologne geoid height correction.
 
 TIME_BETWEEN_TRAJS = 30
 
@@ -189,7 +191,9 @@ icao_list = svdata4_df.icao24.unique()
 icao24_str = ", ".join(f"'{item}'" for item in icao_list)
 
 ops_sts_query = (
-    f"SELECT icao24, mintime, maxtime, nacv, systemdesignassurance, version, positionnac, geometricverticalaccuracy, sourceintegritylevel, barometricaltitudeintegritycode  FROM operational_status_data4"
+    "SELECT icao24, mintime, maxtime, nacv, systemdesignassurance, version, "
+    "positionnac, geometricverticalaccuracy, sourceintegritylevel, "
+    "barometricaltitudeintegritycode FROM operational_status_data4"
     f" WHERE icao24 IN ({icao24_str})"
     f" AND mintime >= {start_time} AND maxtime <= {end_time}"
     f" AND hour >= {start_hour} AND hour <= {end_hour}"
@@ -427,7 +431,9 @@ obs_df.rename(columns={"h": "height_m"}, inplace=True)
 
 obs_df = obs_df.sort_values(
     by=["height_m"]
-)  # sort obstacles by incresing height, to avoid that the min_hgt profil is wrong if a shorter obstacle comes after a taller one, in case the aircraft is within two obstacles clearance areas
+)
+# Sort by increasing height so shorter obstacles do not overwrite the min_hgt profile
+# when an aircraft is inside multiple obstacle clearance areas.
 
 # new. Test if this should not be done before adding the ref and distance info
 final_df = final_df.reset_index(drop=True)
@@ -448,7 +454,7 @@ def update_closest_obstacle_xy(final_df, obstacles_df):
             else NONCONGESTED_ALERT_DISTANCE_M
         )
 
-        # Convert radius to a squared radius for comparison with squared distances (faster than computing square roots)
+        # Compare squared distances to avoid computing square roots for every obstacle.
         squared_radius = radius**2
 
         # Calculate squared Euclidean distances to all obstacles
@@ -476,7 +482,7 @@ def update_closest_obstacle_xy(final_df, obstacles_df):
 
             final_df.at[i, "closest_obst_name"] = tallest_obstacle_name
 
-            # Important: Calculate the minimum height, considerint the tallest obstacle in the alert radius
+            # Calculate minimum height against the tallest obstacle in the alert radius.
             # min_hgt is referenced to the Geoid !
             final_df.at[i, "min_hgt"] = (
                 GEOID_HEIGHT_M
@@ -608,11 +614,11 @@ inf_result["inf_ref"] = (
 
 if not inf_result.empty:
     inf_result["url"] = inf_result.apply(
-        lambda row: "https://globe.adsbexchange.com/?icao=%s&lat=50.928&lon=6.947&zoom=13.2&showTrace=%s&timestamp=%s"
-        % (
-            row["icao24"],
-            row["time"].strftime("%Y-%m-%d"),
-            str(int(row["time"].timestamp())),
+        lambda row: (
+            "https://globe.adsbexchange.com/"
+            f"?icao={row['icao24']}&lat=50.928&lon=6.947&zoom=13.2"
+            f"&showTrace={row['time'].strftime('%Y-%m-%d')}"
+            f"&timestamp={int(row['time'].timestamp())}"
         ),
         axis=1,
     )
@@ -680,11 +686,11 @@ gnd_inf_result["inf_ref"] = (
 
 if not gnd_inf_result.empty:
     gnd_inf_result["url"] = gnd_inf_result.apply(
-        lambda row: "https://globe.adsbexchange.com/?icao=%s&lat=50.928&lon=6.947&zoom=13.2&showTrace=%s&timestamp=%s"
-        % (
-            row["icao24"],
-            row["time"].strftime("%Y-%m-%d"),
-            str(int(row["time"].timestamp())),
+        lambda row: (
+            "https://globe.adsbexchange.com/"
+            f"?icao={row['icao24']}&lat=50.928&lon=6.947&zoom=13.2"
+            f"&showTrace={row['time'].strftime('%Y-%m-%d')}"
+            f"&timestamp={int(row['time'].timestamp())}"
         ),
         axis=1,
     )

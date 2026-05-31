@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import date, datetime
-from typing import Iterator, Mapping, Optional
 from urllib.parse import quote_plus
 
 import pandas as pd
@@ -240,7 +240,7 @@ def insert_manifest(
     start_time: datetime,
     end_time: datetime,
     status: str,
-    error_message: Optional[str] = None,
+    error_message: str | None = None,
 ) -> None:
     duration_sec = int((end_time - start_time).total_seconds())
     connection.execute(
