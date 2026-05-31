@@ -14,6 +14,7 @@ import sshtunnel
 from pyopensky.trino import Trino
 from pyproj import Transformer
 
+from lac_pipeline.events import build_event_tables
 from lac_pipeline.publishing import (
     build_publish_target,
     date_fully_published,
@@ -32,6 +33,7 @@ from lac_pipeline.runtime import (
     retry,
     stage,
 )
+from lac_pipeline.transforms import merge_asof_by_icao
 from lac_pipeline.validation import validate_pipeline_outputs
 
 update_start_time = datetime.now()
@@ -218,34 +220,7 @@ ops_sts_df["time"] = ops_sts_df["mintime"].astype("int64")
 # Save ops_sts pickle
 ops_sts_df.to_pickle(f"./OSN_pickles/opsstsdf_new_{date_string}.pkl")
 
-# Initialize an empty DataFrame to hold the results
-merged_df = pd.DataFrame()
-
-# Loop over each unique 'icao24' in both dataframes
-unique_icao24s = pd.concat([svdata4_df["icao24"], ops_sts_df["icao24"]]).unique()
-
-for icao24 in unique_icao24s:
-    # Filter each dataframe by 'icao24'
-    sub_df1 = svdata4_df[svdata4_df["icao24"] == icao24]
-    sub_df2 = ops_sts_df[ops_sts_df["icao24"] == icao24]
-
-    # Ensure both sub-dataframes are sorted by 'time'
-    sub_df1 = sub_df1.sort_values("time")
-    sub_df2 = sub_df2.sort_values("time")
-
-    sub_df1["icao24"] = sub_df1["icao24"].astype("object")
-    sub_df2["icao24"] = sub_df2["icao24"].astype("object")
-
-    sub_df1["time"] = sub_df1["time"].astype("int64")
-    sub_df2["time"] = sub_df2["time"].astype("int64")
-
-    # Perform merge_asof on the filtered and sorted dataframes
-    merged_sub_df = pd.merge_asof(
-        sub_df1, sub_df2, on="time", by="icao24", direction="backward"
-    )
-
-    # Append the result to the main dataframe
-    merged_df = pd.concat([merged_df, merged_sub_df], ignore_index=True)
+merged_df = merge_asof_by_icao(svdata4_df, ops_sts_df)
 
 # Third Query for Position data (to get the NIC)
 posdata4_query = (
@@ -276,28 +251,7 @@ posdata4_df["time"] = posdata4_df["mintime"].astype("int64")
 # Save ops_sts pickle
 posdata4_df.to_pickle(f"./OSN_pickles/posdata4df_new_{date_string}.pkl")
 
-# Initialize an empty DataFrame to hold the results
-final_df = pd.DataFrame()
-
-for icao24 in unique_icao24s:
-    # Filter each dataframe by 'icao24'
-    sub_df1 = merged_df[merged_df["icao24"] == icao24]
-    sub_df2 = posdata4_df[posdata4_df["icao24"] == icao24]
-
-    # Ensure both sub-dataframes are sorted by 'time'
-    sub_df1 = sub_df1.sort_values("time")
-    sub_df2 = sub_df2.sort_values("time")
-
-    sub_df1["icao24"] = sub_df1["icao24"].astype("object")
-    sub_df2["icao24"] = sub_df2["icao24"].astype("object")
-
-    # Perform merge_asof on the filtered and sorted dataframes
-    merged_sub_df = pd.merge_asof(
-        sub_df1, sub_df2, on="time", by="icao24", direction="backward"
-    )
-
-    # Append the result to the main dataframe
-    final_df = pd.concat([final_df, merged_sub_df], ignore_index=True)
+final_df = merge_asof_by_icao(merged_df, posdata4_df)
 
 final_df = final_df.drop(columns=["hour", "mintime_x", "maxtime", "mintime_y"])
 
@@ -378,7 +332,7 @@ def haversine(pt1, pt2):
     r = 6371000  # Radius of earth in m
     return c * r
 
-final_df["prev_time"] = final_df.time.shift()
+final_df["prev_time"] = final_df.groupby("icao24")["time"].shift()
 final_df["closest_obst_name"] = ""
 final_df["inf_flt"] = False
 final_df["inf_pt"] = False
@@ -544,162 +498,9 @@ missing_callsign = final_df["callsign"].isnull().sum()
 logger.info("null_count column=callsign rows=%s", missing_callsign)
 final_df = final_df.dropna(subset=["callsign"])
 
-## Create infraction tables
+## Create candidate event tables
 
-inf_result = pd.DataFrame
-gnd_inf_result = pd.DataFrame()
-
-inf_pt_df = final_df[final_df.inf_pt].copy()
-
-inf_pt_df["dist_to_obs"] = np.nan
-
-if not inf_pt_df.empty:
-    inf_pt_df["dist_to_obs"] = inf_pt_df.apply(
-        lambda x: haversine(
-            (
-                obs_df.loc[obs_df["LAC_Name"] == x["closest_obst_name"], "lat"].iloc[0],
-                obs_df.loc[obs_df["LAC_Name"] == x["closest_obst_name"], "lon"].iloc[0],
-            ),
-            (x["lat"], x["lon"]),
-        )
-        if not (x["closest_obst_name"] == "ground")
-        else np.nan,
-        axis=1,
-    )
-
-inf_pt_df["time"] = pd.to_datetime(inf_pt_df["time"], unit="s")
-inf_pt_df = inf_pt_df.sort_values(by=["ref", "closest_obst_name", "time"])
-
-inf_pt_df["time_diff"] = inf_pt_df.groupby(["ref", "closest_obst_name"])["time"].diff()
-inf_pt_df["group"] = (inf_pt_df["time_diff"] >= pd.Timedelta(seconds=30)).cumsum()
-
-inf_grouped = inf_pt_df.groupby(["ref", "closest_obst_name", "group"])
-
-inf_min_dist = inf_grouped.apply(
-    lambda x: x.loc[x["dist_to_obs"].idxmin()]
-).reset_index(drop=True)
-inf_max_dip = inf_grouped["dip"].max().reset_index()
-
-group_size = inf_grouped.size().reset_index(name="n")
-
-inf_result = inf_min_dist[
-    [
-        "icao24",
-        "callsign",
-        "group",
-        "ref",
-        "closest_obst_name",
-        "time",
-        "lat",
-        "lon",
-        "dist_to_obs",
-        "congested",
-        "pop_density",
-        "systemdesignassurance",
-        "version",
-        "positionnac",
-        "sourceintegritylevel",
-        "nic",
-    ]
-].copy()
-inf_result = inf_result.merge(inf_max_dip, on=["ref", "closest_obst_name", "group"])
-inf_result = inf_result.merge(group_size, on=["ref", "closest_obst_name", "group"])
-
-inf_result.rename(columns={"dist_to_obs": "cpa", "dip": "dip_max"}, inplace=True)
-
-inf_result["entry_count"] = inf_result.groupby("ref").cumcount()
-inf_result["inf_ref"] = (
-    inf_result["ref"].astype(str) + "_" + inf_result["entry_count"].astype(str)
-)
-
-if not inf_result.empty:
-    inf_result["url"] = inf_result.apply(
-        lambda row: (
-            "https://globe.adsbexchange.com/"
-            f"?icao={row['icao24']}&lat=50.928&lon=6.947&zoom=13.2"
-            f"&showTrace={row['time'].strftime('%Y-%m-%d')}"
-            f"&timestamp={int(row['time'].timestamp())}"
-        ),
-        axis=1,
-    )
-else:
-    inf_result["url"] = []
-
-inf_result = inf_result.reset_index(drop=True)
-
-inf_result = inf_result.drop(columns=["entry_count", "group"])
-
-# Ground infractions
-
-gnd_inf_pt_df = final_df[
-    final_df.gnd_inf_pt & (final_df.dip >= 0) & (final_df.closest_obst_name == "ground")
-].copy()
-
-gnd_inf_pt_df["time"] = pd.to_datetime(gnd_inf_pt_df["time"], unit="s")
-gnd_inf_pt_df = gnd_inf_pt_df.sort_values(by=["ref", "time"])
-
-gnd_inf_pt_df["time_diff"] = gnd_inf_pt_df.groupby(["ref"])["time"].diff()
-gnd_inf_pt_df["group"] = (
-    gnd_inf_pt_df["time_diff"] >= pd.Timedelta(seconds=30)
-).cumsum()
-
-gnd_inf_grouped = gnd_inf_pt_df.groupby(["ref", "group"])
-
-gnd_inf_max_dip = gnd_inf_grouped.apply(lambda x: x.loc[x["dip"].idxmax()]).reset_index(
-    drop=True
-)
-
-group_size = gnd_inf_grouped.size().reset_index(name="n")
-
-gnd_inf_result = gnd_inf_max_dip[
-    [
-        "icao24",
-        "callsign",
-        "group",
-        "ref",
-        "closest_obst_name",
-        "time",
-        "lat",
-        "lon",
-        "dip",
-        "congested",
-        "pop_density",
-        "systemdesignassurance",
-        "version",
-        "positionnac",
-        "sourceintegritylevel",
-        "nic",
-    ]
-].copy()
-
-gnd_inf_result = gnd_inf_result.merge(group_size, on=["ref", "group"])
-
-gnd_inf_result.rename(columns={"dip": "dip_max"}, inplace=True)
-
-gnd_inf_result["entry_count"] = gnd_inf_result.groupby("ref").cumcount()
-gnd_inf_result["inf_ref"] = (
-    gnd_inf_result["ref"].astype(str)
-    + "_"
-    + "gnd_"
-    + gnd_inf_result["entry_count"].astype(str)
-)
-
-if not gnd_inf_result.empty:
-    gnd_inf_result["url"] = gnd_inf_result.apply(
-        lambda row: (
-            "https://globe.adsbexchange.com/"
-            f"?icao={row['icao24']}&lat=50.928&lon=6.947&zoom=13.2"
-            f"&showTrace={row['time'].strftime('%Y-%m-%d')}"
-            f"&timestamp={int(row['time'].timestamp())}"
-        ),
-        axis=1,
-    )
-else:
-     gnd_inf_result["url"] = []
-
-gnd_inf_result = gnd_inf_result.reset_index(drop=True)
-
-gnd_inf_result = gnd_inf_result.drop(columns=["entry_count", "group"])
+inf_result, gnd_inf_result = build_event_tables(final_df, obs_df, haversine)
 
 ###
 

@@ -70,6 +70,8 @@ Dry-run mode performs no MySQL upload and no PythonAnywhere reload.
 - `docs/security.md`
 - `docs/operations.md`
 - `docs/migration-notes.md`
+- `docs/domain-correctness.md`
+- `docs/performance.md`
 
 ## Important Limitations
 

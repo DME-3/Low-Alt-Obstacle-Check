@@ -7,6 +7,8 @@
 - `lac_pipeline.runtime`: CLI parsing, structured logging, run IDs, single-run lock, stale-lock recovery, max-runtime guard, stage timing, bounded retries.
 - `lac_pipeline.publishing`: publish-target selection, production-write protection, SSH tunnel engine lifecycle, manifest checks, transactional publish sequencing, row-count verification, PythonAnywhere reload timeout.
 - `lac_pipeline.validation`: required-column checks, date-range checks, duplicate event-reference checks, and validation summaries.
+- `lac_pipeline.events`: candidate obstacle/ground event table construction with stable empty-frame schemas.
+- `lac_pipeline.transforms`: shared ADS-B merge helpers that avoid repeated per-ICAO dataframe concatenation.
 
 The ADS-B transformation logic is still largely in `OSN_data_update.py` to avoid changing domain results in the same step as the safety work.
 
