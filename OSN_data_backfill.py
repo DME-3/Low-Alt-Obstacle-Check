@@ -93,8 +93,8 @@ def manifest_update(engine, table_name, processed_date, record_count, start_time
 
 # Obtain and format the date to retrieve data for (2 days ago)
 
-start_date = datetime.strptime('2026-02-13', '%Y-%m-%d')
-end_date = datetime.strptime('2026-03-05', '%Y-%m-%d')
+start_date = datetime.strptime('2026-05-24', '%Y-%m-%d')
+end_date = datetime.strptime('2026-05-29', '%Y-%m-%d')
 
 two_days_ago = datetime.now() - timedelta(days=2)
 
