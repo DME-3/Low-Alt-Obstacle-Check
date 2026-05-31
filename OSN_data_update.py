@@ -17,7 +17,7 @@ from pyproj import Transformer
 from lac_pipeline.events import build_event_tables
 from lac_pipeline.publishing import (
     build_publish_target,
-    date_fully_published,
+    ensure_publishable_manifest_state,
     mysql_engine_via_tunnel,
     publish_dataframes,
     publish_empty_day,
@@ -130,9 +130,10 @@ if settings.publish:
     with stage(logger, "early_manifest_check"):
         with mysql_engine_via_tunnel(MYSQL_creds, ed25519_key, publish_target) as engine:
             with engine.connect() as connection:
-                if date_fully_published(
+                state = ensure_publishable_manifest_state(
                     connection, two_days_ago.date(), publish_target.table_names
-                ):
+                )
+                if state == "complete":
                     logger.info(
                         "date_already_published date=%s target=%s",
                         date_string,

@@ -138,11 +138,46 @@ def date_fully_published(
     processed_date: date,
     table_names: tuple[str, str, str],
 ) -> bool:
-    statuses = [
-        _manifest_success_count(connection, table_name, processed_date)
+    return manifest_publish_state(connection, processed_date, table_names) == "complete"
+
+
+def manifest_publish_state(
+    connection: Connection,
+    processed_date: date,
+    table_names: tuple[str, str, str],
+) -> str:
+    counts = manifest_success_counts(connection, processed_date, table_names)
+    if all(count > 0 for count in counts.values()):
+        return "complete"
+    if any(count > 0 for count in counts.values()):
+        return "partial"
+    return "none"
+
+
+def manifest_success_counts(
+    connection: Connection,
+    processed_date: date,
+    table_names: tuple[str, str, str],
+) -> dict[str, int]:
+    return {
+        table_name: _manifest_success_count(connection, table_name, processed_date)
         for table_name in table_names
-    ]
-    return all(count > 0 for count in statuses)
+    }
+
+
+def ensure_publishable_manifest_state(
+    connection: Connection,
+    processed_date: date,
+    table_names: tuple[str, str, str],
+) -> str:
+    state = manifest_publish_state(connection, processed_date, table_names)
+    if state == "partial":
+        counts = manifest_success_counts(connection, processed_date, table_names)
+        raise PublishVerificationError(
+            f"partial manifest success for {processed_date}: {counts}; "
+            "manual recovery required before publishing"
+        )
+    return state
 
 
 def publish_empty_day(
@@ -153,7 +188,10 @@ def publish_empty_day(
     logger: logging.Logger,
 ) -> None:
     with engine.begin() as connection:
-        if date_fully_published(connection, processed_date, target.table_names):
+        state = ensure_publishable_manifest_state(
+            connection, processed_date, target.table_names
+        )
+        if state == "complete":
             logger.info("publish_skip already_published date=%s", processed_date)
             return
         for table_name in target.table_names:
@@ -183,7 +221,10 @@ def publish_dataframes(
     frames = (main_df, inf_df, gndinf_df)
 
     with engine.begin() as connection:
-        if date_fully_published(connection, processed_date, target.table_names):
+        state = ensure_publishable_manifest_state(
+            connection, processed_date, target.table_names
+        )
+        if state == "complete":
             logger.info("publish_skip already_published date=%s", processed_date)
             return counts
 

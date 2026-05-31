@@ -9,8 +9,10 @@ from lac_pipeline.publishing import (
     TEST_DEFAULTS,
     PublishProtectionError,
     PublishTarget,
+    PublishVerificationError,
     build_publish_target,
     date_fully_published,
+    manifest_publish_state,
     publish_dataframes,
     require_publish_allowed,
 )
@@ -74,6 +76,59 @@ def test_publish_dataframes_is_transactional_for_manifest_success():
         assert date_fully_published(connection, processed_date, target.table_names)
         manifest_count = connection.execute(text("SELECT COUNT(*) FROM manifest")).scalar_one()
         assert manifest_count == 3
+
+
+def test_publish_dataframes_blocks_partial_manifest_success():
+    engine = create_engine("sqlite:///:memory:")
+    target = PublishTarget(
+        name="test",
+        database_name="ignored",
+        main_table="main_data_test",
+        inf_table="inf_data_test",
+        gndinf_table="gndinf_data_test",
+    )
+    processed_date = date(2026, 5, 29)
+    main_df = pd.DataFrame({"time": [1779984000], "icao24": ["abc123"]})
+    inf_df = pd.DataFrame({"time": [datetime(2026, 5, 29)], "inf_ref": ["abc_0"]})
+    gndinf_df = pd.DataFrame({"time": [datetime(2026, 5, 29)], "inf_ref": ["abc_gnd_0"]})
+    _create_publish_tables(engine, target, main_df, inf_df, gndinf_df)
+
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO manifest "
+                "(table_name, processed_date, record_count, start_time, end_time, "
+                "duration_sec, status, error_message) "
+                "VALUES (:table_name, :processed_date, 1, :start_time, :end_time, "
+                "0, 'SUCCESS', NULL)"
+            ),
+            {
+                "table_name": target.main_table,
+                "processed_date": processed_date,
+                "start_time": datetime(2026, 5, 31, 2, 0, 0),
+                "end_time": datetime(2026, 5, 31, 2, 0, 1),
+            },
+        )
+
+    with pytest.raises(PublishVerificationError):
+        publish_dataframes(
+            engine,
+            target,
+            main_df,
+            inf_df,
+            gndinf_df,
+            processed_date,
+            datetime(2026, 5, 31, 2, 0, 0),
+            logger=_NullLogger(),
+        )
+
+    with engine.connect() as connection:
+        assert manifest_publish_state(connection, processed_date, target.table_names) == "partial"
+        uploaded_rows = connection.execute(
+            text(f"SELECT COUNT(*) FROM {target.main_table}")
+        ).scalar_one()
+        assert uploaded_rows == 0
+
 
 
 def _create_publish_tables(engine, target, main_df, inf_df, gndinf_df):
