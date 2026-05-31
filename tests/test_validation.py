@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 
 import pandas as pd
 import pytest
@@ -25,6 +25,20 @@ def test_validate_pipeline_outputs_rejects_wrong_main_date():
 
     with pytest.raises(ValidationError):
         validate_pipeline_outputs(main_df, inf_df, gndinf_df, processed_date)
+
+
+def test_validate_pipeline_outputs_uses_local_pipeline_date_for_utc_boundary_rows():
+    processed_date = date(2026, 5, 29)
+    utc_boundary_time = int(
+        datetime(2026, 5, 28, 22, 30, 0, tzinfo=timezone.utc).timestamp()
+    )
+    main_df = _main_df(utc_boundary_time)
+    inf_df = _event_df(datetime(2026, 5, 28, 22, 45, 0), "abc_0")
+    gndinf_df = _event_df(datetime(2026, 5, 28, 23, 0, 0), "abc_gnd_0")
+
+    results = validate_pipeline_outputs(main_df, inf_df, gndinf_df, processed_date)
+
+    assert [result.row_count for result in results] == [1, 1, 1]
 
 
 def test_validate_pipeline_outputs_rejects_duplicate_event_refs():

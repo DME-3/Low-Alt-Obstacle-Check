@@ -56,7 +56,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--date",
         dest="target_date",
-        help="Process this UTC/local server date instead of the default two days ago.",
+        help="Process this Europe/Paris pipeline date instead of the default two days ago.",
     )
     parser.add_argument(
         "--publish",

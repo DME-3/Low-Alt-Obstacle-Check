@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 
@@ -50,6 +51,9 @@ EVENT_REQUIRED_COLUMNS = {
 }
 
 
+PIPELINE_TIME_ZONE = "Europe/Paris"
+
+
 def validate_required_columns(
     frame: pd.DataFrame, required_columns: Iterable[str], name: str
 ) -> None:
@@ -74,14 +78,15 @@ def validate_pipeline_outputs(
     inf_df: pd.DataFrame,
     gndinf_df: pd.DataFrame,
     processed_date: date,
+    time_zone: str = PIPELINE_TIME_ZONE,
 ) -> list[FrameValidationResult]:
     validate_required_columns(main_df, MAIN_REQUIRED_COLUMNS, "main_df")
     validate_required_columns(inf_df, EVENT_REQUIRED_COLUMNS, "inf_df")
     validate_required_columns(gndinf_df, EVENT_REQUIRED_COLUMNS, "gndinf_df")
 
-    _validate_main_date(main_df, processed_date)
-    _validate_event_date(inf_df, processed_date, "inf_df")
-    _validate_event_date(gndinf_df, processed_date, "gndinf_df")
+    _validate_main_date(main_df, processed_date, time_zone)
+    _validate_event_date(inf_df, processed_date, "inf_df", time_zone)
+    _validate_event_date(gndinf_df, processed_date, "gndinf_df", time_zone)
 
     validate_no_duplicate_keys(inf_df, ["inf_ref"], "inf_df")
     validate_no_duplicate_keys(gndinf_df, ["inf_ref"], "gndinf_df")
@@ -93,22 +98,28 @@ def validate_pipeline_outputs(
     ]
 
 
-def _validate_main_date(frame: pd.DataFrame, processed_date: date) -> None:
+def _validate_main_date(
+    frame: pd.DataFrame, processed_date: date, time_zone: str
+) -> None:
     if frame.empty:
         return
-    times = pd.to_datetime(frame["time"], unit="s", errors="coerce")
+    times = pd.to_datetime(frame["time"], unit="s", errors="coerce", utc=True)
     if times.isna().any():
         raise ValidationError("main_df contains invalid unix timestamps")
-    _validate_dates_match(times.dt.date, processed_date, "main_df")
+    local_dates = times.dt.tz_convert(ZoneInfo(time_zone)).dt.date
+    _validate_dates_match(local_dates, processed_date, "main_df")
 
 
-def _validate_event_date(frame: pd.DataFrame, processed_date: date, name: str) -> None:
+def _validate_event_date(
+    frame: pd.DataFrame, processed_date: date, name: str, time_zone: str
+) -> None:
     if frame.empty:
         return
-    times = pd.to_datetime(frame["time"], errors="coerce")
+    times = pd.to_datetime(frame["time"], errors="coerce", utc=True)
     if times.isna().any():
         raise ValidationError(f"{name} contains invalid timestamps")
-    _validate_dates_match(times.dt.date, processed_date, name)
+    local_dates = times.dt.tz_convert(ZoneInfo(time_zone)).dt.date
+    _validate_dates_match(local_dates, processed_date, name)
 
 
 def _validate_dates_match(actual_dates: pd.Series, processed_date: date, name: str) -> None:

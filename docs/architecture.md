@@ -24,7 +24,7 @@ The production wrapper is intentionally tiny; ADS-B orchestration and domain tra
 3. Enforce publish protection.
 4. Acquire a single-run lock.
 5. Install the process max-runtime guard.
-6. Compute the target processing date.
+6. Compute the target processing date as a Europe/Paris local calendar day.
 7. If publishing, check manifest success for the exact target date before expensive OpenSky work.
 8. Build validated OpenSky/Trino queries and fetch them with bounded retry attempts.
 9. If the source day is empty, record a zero-row success only when explicitly publishing.

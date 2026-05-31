@@ -9,13 +9,13 @@ cd /home/dimitri/obstaclecheck
 /home/dimitri/obstaclecheck/.venv/bin/python OSN_data_update.py
 ```
 
-For a specific date:
+For a specific Europe/Paris pipeline date:
 
 ```bash
 /home/dimitri/obstaclecheck/.venv/bin/python OSN_data_update.py --date 2026-05-29
 ```
 
-Dry-runs still query OpenSky and may write local pickles.
+Dry-runs still query OpenSky and may write local pickles. The pipeline date is a Cologne local calendar day, so validation accepts the corresponding UTC boundary rows.
 
 ## Test Upload
 
