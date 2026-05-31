@@ -101,6 +101,36 @@ ps -ef | grep OSN_data_update.py
 5. If only some tables have `SUCCESS` manifest rows, automatic publishing now fails fast; perform manual recovery before retrying.
 6. Prefer a test upload before a production re-run when the failure happened after data processing.
 
+## Production Day Reprocessing
+
+A production day can be replaced manually after review. The tool is dry-run by default and first reports the rows and manifest entries that would be deleted:
+
+```bash
+/home/dimitri/obstaclecheck/.venv/bin/python scripts/reprocess_production_day.py \
+  --date 2026-05-29
+```
+
+Execution requires explicit flags and a typed confirmation phrase. It runs a preflight dry-run, deletes the date from all three production tables plus matching manifest rows, then republishes the same date through `OSN_data_update.py`:
+
+```bash
+/home/dimitri/obstaclecheck/.venv/bin/python scripts/reprocess_production_day.py \
+  --date 2026-05-29 \
+  --execute \
+  --confirm-production
+```
+
+For non-interactive manual use, pass the exact confirmation token:
+
+```bash
+/home/dimitri/obstaclecheck/.venv/bin/python scripts/reprocess_production_day.py \
+  --date 2026-05-29 \
+  --execute \
+  --confirm-production \
+  --confirmation-token "DELETE AND REPROCESS 2026-05-29"
+```
+
+If republishing fails after deletion, that date needs immediate manual recovery before the site should be considered complete for the day.
+
 ## Manual Recovery Tools
 
 `OSN_data_backfill.py` is now a manual recovery wrapper around the hardened nightly
