@@ -25,6 +25,17 @@ To print detected candidate-infraction counts plus the first `N` rows of the `in
   --show_results 5
 ```
 
+## Dry Run / Production Comparison
+
+To compare a fresh dry-run's validation metrics with read-only production table aggregates for the same Europe/Paris pipeline date:
+
+```bash
+/home/dimitri/obstaclecheck/.venv/bin/python scripts/compare_dry_run_to_prod.py \
+  --date 2026-05-29
+```
+
+The script reports row counts and unique `icao24` counts for `main_data`, `inf_data`, and `gndinf_data`, plus dry-run minus production differences. It does not publish or modify production tables.
+
 ## Test Upload
 
 Upload to test tables and skip web reload:

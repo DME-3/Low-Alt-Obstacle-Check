@@ -44,6 +44,7 @@ class RuntimeSettings:
     ssh_timeout_seconds: float
     tunnel_timeout_seconds: float
     show_results: int | None
+    validation_metrics_json: Path | None
 
     @property
     def dry_run(self) -> bool:
@@ -147,6 +148,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
             "rows of inf/gndinf result tables."
         ),
     )
+    parser.add_argument(
+        "--validation-metrics-json",
+        help=argparse.SUPPRESS,
+    )
     return parser
 
 
@@ -174,6 +179,9 @@ def parse_runtime_settings(argv: list[str] | None = None) -> RuntimeSettings:
         ssh_timeout_seconds=args.ssh_timeout_seconds,
         tunnel_timeout_seconds=args.tunnel_timeout_seconds,
         show_results=args.show_results,
+        validation_metrics_json=(
+            Path(args.validation_metrics_json) if args.validation_metrics_json else None
+        ),
     )
 
 

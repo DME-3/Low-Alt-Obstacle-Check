@@ -11,6 +11,11 @@ from lac_pipeline.geospatial import (
     add_population_density,
     add_projected_coordinates,
 )
+from lac_pipeline.metrics import (
+    collect_pipeline_metrics,
+    empty_pipeline_metrics,
+    write_metrics_json,
+)
 from lac_pipeline.obstacles import ClearanceConfig, add_obstacle_clearance, load_obstacles
 from lac_pipeline.opensky import (
     GeographicBounds,
@@ -169,6 +174,12 @@ def main(argv: list[str] | None = None) -> int:
 
         if svdata4_df.empty:
             logger.warning("empty_source_day date=%s", date_string)
+            if settings.validation_metrics_json:
+                write_metrics_json(
+                    settings.validation_metrics_json,
+                    two_days_ago.date(),
+                    empty_pipeline_metrics(),
+                )
             if settings.publish:
                 with stage(logger, "publish_empty_day"):
                     with mysql_engine_via_tunnel(
@@ -308,6 +319,13 @@ def main(argv: list[str] | None = None) -> int:
                     result.row_count,
                     result.null_counts,
                 )
+
+        if settings.validation_metrics_json:
+            write_metrics_json(
+                settings.validation_metrics_json,
+                processed_date,
+                collect_pipeline_metrics(final_df, inf_result, gnd_inf_result),
+            )
 
         if settings.dry_run:
             if settings.show_results is not None:
