@@ -8,6 +8,7 @@ from lac_pipeline.production_compare import (
     compare_metrics,
     fetch_production_metrics,
     format_comparison_report,
+    table_metrics_query,
 )
 from lac_pipeline.publishing import PublishTarget
 
@@ -51,6 +52,13 @@ def test_fetch_production_metrics_counts_rows_and_unique_aircraft():
     assert metrics["main_data"] == TableMetrics(rows=3, unique_aircraft=2)
     assert metrics["inf_data"] == TableMetrics(rows=1, unique_aircraft=1)
     assert metrics["gndinf_data"] == TableMetrics(rows=1, unique_aircraft=1)
+
+
+def test_table_metrics_query_avoids_reserved_rows_alias():
+    query = table_metrics_query("main_data")
+
+    assert "AS row_count" in query
+    assert "AS rows" not in query
 
 
 def test_fetch_table_metrics_rejects_unsafe_table_name():

@@ -66,17 +66,22 @@ def fetch_table_metrics(
     start_value: int | datetime,
     end_value: int | datetime,
 ) -> TableMetrics:
+    query = table_metrics_query(table_name)
     result = connection.execute(
-        text(
-            f"SELECT COUNT(*) AS rows, COUNT(DISTINCT icao24) AS unique_aircraft "
-            f"FROM `{_checked_identifier(table_name)}` "
-            "WHERE `time` >= :start_value AND `time` <= :end_value"
-        ),
+        text(query),
         {"start_value": start_value, "end_value": end_value},
     ).mappings().one()
     return TableMetrics(
-        rows=int(result["rows"]),
+        rows=int(result["row_count"]),
         unique_aircraft=int(result["unique_aircraft"]),
+    )
+
+
+def table_metrics_query(table_name: str) -> str:
+    return (
+        "SELECT COUNT(*) AS row_count, COUNT(DISTINCT icao24) AS unique_aircraft "
+        f"FROM `{_checked_identifier(table_name)}` "
+        "WHERE `time` >= :start_value AND `time` <= :end_value"
     )
 
 
