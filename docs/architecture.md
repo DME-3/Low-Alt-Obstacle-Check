@@ -2,8 +2,9 @@
 
 ## Current Shape
 
-`OSN_data_update.py` remains the cron-compatible production entry point. The highest-risk operational concerns have been moved into small helper modules under `lac_pipeline/`:
+`OSN_data_update.py` is now a thin cron-compatible wrapper around `lac_pipeline.nightly.main`. The highest-risk operational concerns live in small helper modules under `lac_pipeline/`:
 
+- `lac_pipeline.nightly`: orchestrates the nightly pipeline as an import-safe callable entry point.
 - `lac_pipeline.runtime`: CLI parsing, structured logging, run IDs, single-run lock, stale-lock recovery, max-runtime guard, stage timing, bounded retries.
 - `lac_pipeline.publishing`: publish-target selection, production-write protection, SSH tunnel engine lifecycle, manifest checks, transactional publish sequencing, row-count verification, PythonAnywhere reload timeout.
 - `lac_pipeline.validation`: required-column checks, date-range checks, duplicate event-reference checks, and validation summaries.
@@ -13,7 +14,7 @@
 - `lac_pipeline.trajectory`: trajectory splitting and along-track distance helpers.
 - `lac_pipeline.obstacles`: obstacle/ground clearance calculations and candidate flags.
 
-The ADS-B transformation logic is still largely in `OSN_data_update.py` to avoid changing domain results in the same step as the safety work.
+The production wrapper is intentionally tiny; ADS-B orchestration and domain transformations now live under `lac_pipeline/`.
 
 ## Nightly Flow
 
@@ -49,5 +50,5 @@ Test table names remain:
 
 ## Remaining Refactor Work
 
-The next architecture step should move ADS-B query construction, dataframe transformation, raster enrichment, trajectory splitting, and event generation out of `OSN_data_update.py` into tested domain modules. That should be done with regression fixtures so event results do not drift accidentally.
+The next architecture step should isolate OpenSky query construction/fetching and publish orchestration further, then compare end-to-end outputs against baseline fixtures so event results do not drift accidentally.
 

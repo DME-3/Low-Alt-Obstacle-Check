@@ -46,7 +46,7 @@ Recommended next step:
 
 The trajectory split threshold remains `TIME_BETWEEN_TRAJS = 30` seconds. The implementation now computes previous timestamps per ICAO instead of relying on a global dataframe shift, which better matches the intended per-aircraft split logic.
 
-## Unused Margins
+## Removed Unused Margins
 
-`CPA_MARGIN_M`, `DIP_MARGIN_M`, and `N_MIN` remain defined but not applied. They should be either introduced intentionally with tests and migration notes or removed in a separate cleanup after confirming the site does not depend on their implied semantics.
+`CPA_MARGIN_M`, `DIP_MARGIN_M`, and `N_MIN` were previously defined but not applied. They are no longer part of the executable pipeline. Reintroduce them only with explicit calculation semantics, tests, and migration notes.
 

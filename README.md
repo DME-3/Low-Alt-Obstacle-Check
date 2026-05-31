@@ -8,7 +8,7 @@ Production ADS-B data pipeline for the Low Alt Cologne site. The nightly job imp
 /home/dimitri/obstaclecheck/.venv/bin/python /home/dimitri/obstaclecheck/OSN_data_update.py
 ```
 
-The script is cron-compatible, but it now defaults to dry-run mode. Production upload requires explicit flags.
+The script is a thin cron-compatible wrapper around `lac_pipeline.nightly.main`. It defaults to dry-run mode. Production upload requires explicit flags.
 
 ## Dry Run
 
