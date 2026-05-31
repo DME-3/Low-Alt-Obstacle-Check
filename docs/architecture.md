@@ -6,6 +6,7 @@
 
 - `lac_pipeline.nightly`: orchestrates the nightly pipeline as an import-safe callable entry point.
 - `lac_pipeline.runtime`: CLI parsing, structured logging, run IDs, single-run lock, stale-lock recovery, max-runtime guard, stage timing, bounded retries.
+- `lac_pipeline.opensky`: OpenSky query-window construction, ICAO filter validation, query string builders, and bounded Trino fetch retries.
 - `lac_pipeline.publishing`: publish-target selection, production-write protection, SSH tunnel engine lifecycle, manifest checks, transactional publish sequencing, row-count verification, PythonAnywhere reload timeout.
 - `lac_pipeline.validation`: required-column checks, date-range checks, duplicate event-reference checks, and validation summaries.
 - `lac_pipeline.events`: candidate obstacle/ground event table construction with stable empty-frame schemas.
@@ -25,7 +26,7 @@ The production wrapper is intentionally tiny; ADS-B orchestration and domain tra
 5. Install the process max-runtime guard.
 6. Compute the target processing date.
 7. If publishing, check manifest success for the exact target date before expensive OpenSky work.
-8. Query OpenSky/Trino with bounded retry attempts.
+8. Build validated OpenSky/Trino queries and fetch them with bounded retry attempts.
 9. If the source day is empty, record a zero-row success only when explicitly publishing.
 10. Build enriched ADS-B dataframes and candidate event tables.
 11. Validate output frames.
@@ -50,5 +51,5 @@ Test table names remain:
 
 ## Remaining Refactor Work
 
-The next architecture step should isolate OpenSky query construction/fetching and publish orchestration further, then compare end-to-end outputs against baseline fixtures so event results do not drift accidentally.
+The next architecture step should compare end-to-end outputs against baseline fixtures, then isolate the remaining orchestration in `lac_pipeline.nightly` into smaller service functions without changing event results.
 

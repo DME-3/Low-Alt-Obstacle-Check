@@ -38,7 +38,7 @@ Manual tools also default to dry-run and require explicit execution plus product
 
 The publishing layer validates configured database and table identifiers with an allowlist-style identifier check before using them in SQL. Data values are passed through SQLAlchemy/pandas APIs rather than interpolated into MySQL statements.
 
-OpenSky/Trino query strings still interpolate internally generated timestamps, bounds, and ICAO values returned by OpenSky. Future work should isolate query construction and add tests around generated SQL.
+OpenSky/Trino query strings interpolate internally generated timestamps and bounds. ICAO values returned by OpenSky are now validated as six-character hexadecimal identifiers before they are interpolated into follow-up OpenSky queries.
 
 ## Network Operations
 
@@ -51,7 +51,7 @@ Logs include timestamps and run IDs. Secrets and connection strings are not inte
 ## Remaining Risks
 
 - The OpenSky/Trino library does not currently have a per-query timeout wired through this code path.
-- The monolithic transformation code still performs most work at module scope.
+- `lac_pipeline.nightly` still owns a large orchestration function and should be split further after fixture-backed output comparisons.
 - Manual backfill tools are safer but still duplicate production logic and write directly to production when explicitly confirmed.
 - The PythonAnywhere MySQL transaction semantics depend on the destination tables using a transactional engine.
 

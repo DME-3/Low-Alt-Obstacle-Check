@@ -4,7 +4,6 @@ from datetime import datetime, timedelta
 
 import paramiko
 import sshtunnel
-from pyopensky.trino import Trino
 
 from lac_pipeline.events import build_event_tables
 from lac_pipeline.geospatial import (
@@ -13,6 +12,14 @@ from lac_pipeline.geospatial import (
     add_projected_coordinates,
 )
 from lac_pipeline.obstacles import ClearanceConfig, add_obstacle_clearance, load_obstacles
+from lac_pipeline.opensky import (
+    GeographicBounds,
+    build_operational_status_query,
+    build_position_query,
+    build_query_window,
+    build_state_vectors_query,
+    fetch_opensky_dataframe,
+)
 from lac_pipeline.publishing import (
     build_publish_target,
     ensure_publishable_manifest_state,
@@ -28,7 +35,6 @@ from lac_pipeline.runtime import (
     configure_logging,
     install_max_runtime_guard,
     parse_runtime_settings,
-    retry,
     stage,
 )
 from lac_pipeline.trajectory import add_trajectory_columns, haversine
@@ -118,12 +124,13 @@ def main(argv: list[str] | None = None) -> int:
             two_days_ago = datetime.now() - timedelta(days=2)
         date_string = two_days_ago.strftime("%Y-%m-%d")
         logger.info("target_date date=%s", date_string)
-        start = two_days_ago.replace(hour=0, minute=0, second=0, microsecond=0)
-        end = two_days_ago.replace(hour=23, minute=59, second=59, microsecond=999999)
-        start_time = int(start.timestamp())
-        start_hour = start_time - (start_time % 3600)
-        end_time = int(end.timestamp())
-        end_hour = end_time - (end_time % 3600)
+        query_window = build_query_window(two_days_ago)
+        geographic_bounds = GeographicBounds(
+            lat_min=LAT_MIN,
+            lat_max=LAT_MAX,
+            lon_min=LON_MIN,
+            lon_max=LON_MAX,
+        )
 
         if settings.publish:
             with stage(logger, "early_manifest_check"):
@@ -141,28 +148,22 @@ def main(argv: list[str] | None = None) -> int:
                             return 0
 
         # First query for State Vectors
-        svdata4_query = (
-            f"SELECT * FROM state_vectors_data4"
-            f" WHERE icao24 LIKE '%'"
-            f" AND time >= {start_time} AND time <= {end_time}"
-            f" AND hour >= {start_hour} AND hour <= {end_hour}"
-            f" AND lat >= {LAT_MIN} AND lat <= {LAT_MAX}"
-            f" AND lon>= {LON_MIN} AND lon <= {LON_MAX}"
-            f" AND geoaltitude >= {ALT_MIN} AND geoaltitude <= {ALT_MAX}"
-            f" ORDER BY time"
+        svdata4_query = build_state_vectors_query(
+            query_window,
+            geographic_bounds,
+            ALT_MIN,
+            ALT_MAX,
         )
 
         with stage(logger, "query_state_vectors"):
-            svdata4_df = retry(
+            svdata4_df = fetch_opensky_dataframe(
                 "state_vectors_data4",
+                svdata4_query,
                 settings.query_attempts,
                 settings.query_retry_delay_seconds,
                 logger,
-                lambda: Trino().query(
-                    svdata4_query,
-                    cached=False,
-                    compress=True,
-                ),
+                cached=False,
+                compress=True,
             )
         logger.info("query_rows table=state_vectors_data4 rows=%s", len(svdata4_df))
 
@@ -190,28 +191,16 @@ def main(argv: list[str] | None = None) -> int:
 
         # Second Query for Ops Status
         icao_list = svdata4_df.icao24.unique()
-        icao24_str = ", ".join(f"'{item}'" for item in icao_list)
-
-        ops_sts_query = (
-            "SELECT icao24, mintime, maxtime, nacv, systemdesignassurance, version, "
-            "positionnac, geometricverticalaccuracy, sourceintegritylevel, "
-            "barometricaltitudeintegritycode FROM operational_status_data4"
-            f" WHERE icao24 IN ({icao24_str})"
-            f" AND mintime >= {start_time} AND maxtime <= {end_time}"
-            f" AND hour >= {start_hour} AND hour <= {end_hour}"
-            f" ORDER by mintime"
-        )
+        ops_sts_query = build_operational_status_query(icao_list, query_window)
 
         with stage(logger, "query_operational_status"):
-            ops_sts_df = retry(
+            ops_sts_df = fetch_opensky_dataframe(
                 "operational_status_data4",
+                ops_sts_query,
                 settings.query_attempts,
                 settings.query_retry_delay_seconds,
                 logger,
-                lambda: Trino().query(
-                    ops_sts_query,
-                    cached=False,
-                ),
+                cached=False,
             )
         logger.info("query_rows table=operational_status_data4 rows=%s", len(ops_sts_df))
 
@@ -223,26 +212,20 @@ def main(argv: list[str] | None = None) -> int:
         merged_df = merge_asof_by_icao(svdata4_df, ops_sts_df)
 
         # Third Query for Position data (to get the NIC)
-        posdata4_query = (
-            f"SELECT mintime, icao24, nic  FROM position_data4"
-            f" WHERE icao24 IN ({icao24_str})"
-            f" AND lat >= {LAT_MIN} AND lat <= {LAT_MAX}"
-            f" AND lon>= {LON_MIN} AND lon <= {LON_MAX}"
-            f" AND mintime >= {start_time} AND maxtime <= {end_time}"
-            f" AND hour >= {start_hour} AND hour <= {end_hour}"
-            f" ORDER by mintime"
+        posdata4_query = build_position_query(
+            icao_list,
+            query_window,
+            geographic_bounds,
         )
 
         with stage(logger, "query_position_data"):
-            posdata4_df = retry(
+            posdata4_df = fetch_opensky_dataframe(
                 "position_data4",
+                posdata4_query,
                 settings.query_attempts,
                 settings.query_retry_delay_seconds,
                 logger,
-                lambda: Trino().query(
-                    posdata4_query,
-                    cached=False,
-                ),
+                cached=False,
             )
         logger.info("query_rows table=position_data4 rows=%s", len(posdata4_df))
 
