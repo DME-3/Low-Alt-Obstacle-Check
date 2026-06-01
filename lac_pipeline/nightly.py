@@ -122,11 +122,11 @@ def main(argv: list[str] | None = None) -> int:
             settings.publish,
         )
 
-        # Obtain and format the date to retrieve data for (2 days ago by default)
+        # Obtain and format the date to retrieve data for (3 days ago by default)
         if settings.target_date:
             two_days_ago = datetime.strptime(settings.target_date, "%Y-%m-%d")
         else:
-            two_days_ago = datetime.now() - timedelta(days=2)
+            two_days_ago = datetime.now() - timedelta(days=3)
         date_string = two_days_ago.strftime("%Y-%m-%d")
         logger.info("target_date date=%s", date_string)
         query_window = build_query_window(two_days_ago)
