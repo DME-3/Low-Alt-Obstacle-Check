@@ -3,9 +3,11 @@ from datetime import datetime
 
 import pandas as pd
 import pytest
+from trino import exceptions as trino_exceptions
 
 from lac_pipeline.opensky import (
     GeographicBounds,
+    OpenSkyUnavailableError,
     build_operational_status_query,
     build_position_query,
     build_query_window,
@@ -84,3 +86,48 @@ def test_fetch_opensky_dataframe_uses_bounded_retry():
 
     assert result.equals(expected)
     assert calls["count"] == 2
+
+
+def test_fetch_opensky_dataframe_turns_repeated_trino_404_into_unavailable(caplog):
+    calls = {"count": 0}
+
+    class FakeTrino:
+        def query(self, query, cached, compress):
+            calls["count"] += 1
+            raise trino_exceptions.HttpError(
+                "error 404: b'<html><head><title>404 Not Found</title></head></html>'"
+            )
+
+    caplog.set_level(logging.WARNING)
+
+    with pytest.raises(OpenSkyUnavailableError) as error:
+        fetch_opensky_dataframe(
+            "state_vectors_data4",
+            "SELECT 1",
+            attempts=2,
+            retry_delay_seconds=0,
+            logger=logging.getLogger("test"),
+            trino_factory=FakeTrino,
+        )
+
+    assert calls["count"] == 2
+    assert "table=state_vectors_data4" in str(error.value)
+    assert 'last_error="HTTP 404 Not Found"' in str(error.value)
+    assert "HTTP 404 Not Found" in caplog.text
+    assert "<html>" not in caplog.text
+
+
+def test_fetch_opensky_dataframe_leaves_non_trino_404_errors_alone():
+    class FakeTrino:
+        def query(self, query, cached, compress):
+            raise RuntimeError("error 404: application lookup")
+
+    with pytest.raises(RuntimeError, match="application lookup"):
+        fetch_opensky_dataframe(
+            "state_vectors_data4",
+            "SELECT 1",
+            attempts=1,
+            retry_delay_seconds=0,
+            logger=logging.getLogger("test"),
+            trino_factory=FakeTrino,
+        )

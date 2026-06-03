@@ -99,7 +99,8 @@ ps -ef | grep OSN_data_update.py
 3. If no process is alive but `/tmp/obstaclecheck-nightly.lock` remains, the next run should recover it after the stale threshold.
 4. Verify manifest rows for the target date and all three tables before re-running with `--publish`.
 5. If only some tables have `SUCCESS` manifest rows, automatic publishing now fails fast; perform manual recovery before retrying.
-6. Prefer a test upload before a production re-run when the failure happened after data processing.
+6. If OpenSky/Trino returns an availability HTTP error, including the OSN-down `404 Not Found` case, the pipeline logs `opensky_unavailable`, releases the lock, and exits with code `75` without a Python traceback. Retry after the service recovers.
+7. Prefer a test upload before a production re-run when the failure happened after data processing.
 
 ## Production Day Reprocessing
 

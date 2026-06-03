@@ -25,6 +25,13 @@ class MaxRuntimeExceeded(TimeoutError):
     """Raised when the process-level runtime guard expires."""
 
 
+class GracefulPipelineError(RuntimeError):
+    """Raised for operational failures that should exit without a traceback."""
+
+    status = "failed"
+    exit_code = 1
+
+
 @dataclass(frozen=True)
 class RuntimeSettings:
     run_id: str
@@ -333,6 +340,9 @@ def stage(logger: logging.Logger, name: str) -> Iterator[None]:
     logger.info("stage_start name=%s", name)
     try:
         yield
+    except GracefulPipelineError as exc:
+        logger.error("stage_failed name=%s error=%s", name, exc)
+        raise
     except Exception:
         logger.exception("stage_failed name=%s", name)
         raise
@@ -347,6 +357,8 @@ def retry(
     delay_seconds: int,
     logger: logging.Logger,
     operation: Callable[[], T],
+    *,
+    error_formatter: Callable[[BaseException], str] | None = None,
 ) -> T:
     last_exc: BaseException | None = None
     for attempt in range(1, attempts + 1):
@@ -354,15 +366,15 @@ def retry(
             return operation()
         except Exception as exc:  # noqa: BLE001
             last_exc = exc
+            error = error_formatter(exc) if error_formatter else str(exc)
             logger.warning(
                 "operation_failed label=%s attempt=%s attempts=%s error=%s",
                 label,
                 attempt,
                 attempts,
-                exc,
+                error,
             )
             if attempt < attempts and delay_seconds:
                 time.sleep(delay_seconds)
     assert last_exc is not None
     raise last_exc
-

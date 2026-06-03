@@ -35,6 +35,7 @@ from lac_pipeline.publishing import (
     require_publish_allowed,
 )
 from lac_pipeline.runtime import (
+    GracefulPipelineError,
     LockError,
     PipelineLock,
     configure_logging,
@@ -49,6 +50,7 @@ from lac_pipeline.validation import validate_pipeline_outputs
 
 def main(argv: list[str] | None = None) -> int:
     run_lock = None
+    logger = logging.getLogger("lac_pipeline.nightly")
     try:
         update_start_time = datetime.now()
         settings = parse_runtime_settings(argv)
@@ -373,6 +375,14 @@ def main(argv: list[str] | None = None) -> int:
 
         logger.info("pipeline_complete status=success")
         return 0
+    except GracefulPipelineError as exc:
+        logger.error(
+            "pipeline_aborted status=%s exit_code=%s error=%s",
+            exc.status,
+            exc.exit_code,
+            exc,
+        )
+        return exc.exit_code
     finally:
         if run_lock is not None:
             run_lock.release()

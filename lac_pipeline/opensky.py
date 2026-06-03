@@ -5,11 +5,13 @@ import re
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import datetime
+from http import HTTPStatus
 
 import pandas as pd
 from pyopensky.trino import Trino
+from trino import exceptions as trino_exceptions
 
-from lac_pipeline.runtime import retry
+from lac_pipeline.runtime import GracefulPipelineError, retry
 
 
 @dataclass(frozen=True)
@@ -103,6 +105,99 @@ def format_icao_filter_values(icao_values: Iterable[object]) -> str:
     return ", ".join(f"'{value}'" for value in cleaned)
 
 
+_HTTP_ERROR_RE = re.compile(r"\berror\s+(?P<status>\d{3})(?::|\b)", re.IGNORECASE)
+_HTML_TITLE_RE = re.compile(r"<title>\s*(?P<title>[^<]+?)\s*</title>", re.IGNORECASE)
+_HTML_TAG_RE = re.compile(r"<[^>]+>")
+_OPEN_SKY_UNAVAILABLE_HTTP_STATUSES = {404, 429, 500, 502, 503, 504}
+
+
+class OpenSkyUnavailableError(GracefulPipelineError):
+    """Raised when the OpenSky/Trino source is temporarily unavailable."""
+
+    status = "opensky_unavailable"
+    exit_code = 75
+
+    def __init__(self, label: str, attempts: int, last_error: BaseException) -> None:
+        self.label = label
+        self.attempts = attempts
+        self.last_error_summary = summarize_opensky_error(last_error)
+        super().__init__(
+            "OpenSky/Trino source unavailable "
+            f"table={label} attempts={attempts} "
+            f'last_error="{self.last_error_summary}"'
+        )
+
+
+def is_opensky_unavailable_error(exc: BaseException) -> bool:
+    for candidate in _walk_exception_chain(exc):
+        if isinstance(candidate, trino_exceptions.TrinoConnectionError):
+            return True
+        if isinstance(candidate, trino_exceptions.HttpError):
+            status = _http_status_from_error(candidate)
+            return status in _OPEN_SKY_UNAVAILABLE_HTTP_STATUSES
+    return False
+
+
+def summarize_opensky_error(exc: BaseException) -> str:
+    for candidate in _walk_exception_chain(exc):
+        if not isinstance(candidate, trino_exceptions.HttpError):
+            continue
+        status = _http_status_from_error(candidate)
+        if status is not None:
+            return _format_http_status(status, str(candidate))
+
+    message = _clean_error_text(str(exc))
+    return message or exc.__class__.__name__
+
+
+def _walk_exception_chain(exc: BaseException):
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        yield current
+        next_exc = getattr(current, "orig", None) or current.__cause__ or current.__context__
+        current = next_exc if isinstance(next_exc, BaseException) else None
+
+
+def _http_status_from_error(exc: BaseException) -> int | None:
+    match = _HTTP_ERROR_RE.search(str(exc))
+    if not match:
+        return None
+    return int(match.group("status"))
+
+
+def _format_http_status(status: int, message: str) -> str:
+    reason = _http_reason_from_message(status, message)
+    if reason:
+        return f"HTTP {status} {reason}"
+    return f"HTTP {status}"
+
+
+def _http_reason_from_message(status: int, message: str) -> str:
+    title_match = _HTML_TITLE_RE.search(message)
+    if title_match:
+        reason = _clean_error_text(title_match.group("title"))
+        reason = re.sub(rf"^{status}\s*", "", reason).strip(" -:")
+        if reason:
+            return reason
+
+    try:
+        return HTTPStatus(status).phrase
+    except ValueError:
+        return ""
+
+
+def _clean_error_text(message: str) -> str:
+    text = _HTML_TAG_RE.sub(" ", message)
+    text = text.replace("\\r", " ").replace("\\n", " ")
+    text = text.replace("\r", " ").replace("\n", " ")
+    text = " ".join(text.split())
+    if len(text) > 200:
+        return f"{text[:197]}..."
+    return text
+
+
 def fetch_opensky_dataframe(
     label: str,
     query: str,
@@ -114,10 +209,16 @@ def fetch_opensky_dataframe(
     compress: bool = False,
     trino_factory: Callable[[], Trino] = Trino,
 ) -> pd.DataFrame:
-    return retry(
-        label,
-        attempts,
-        retry_delay_seconds,
-        logger,
-        lambda: trino_factory().query(query, cached=cached, compress=compress),
-    )
+    try:
+        return retry(
+            label,
+            attempts,
+            retry_delay_seconds,
+            logger,
+            lambda: trino_factory().query(query, cached=cached, compress=compress),
+            error_formatter=summarize_opensky_error,
+        )
+    except Exception as exc:  # noqa: BLE001
+        if is_opensky_unavailable_error(exc):
+            raise OpenSkyUnavailableError(label, attempts, exc) from exc
+        raise
